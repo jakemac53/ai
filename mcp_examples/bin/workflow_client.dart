@@ -139,6 +139,7 @@ final class WorkflowClient extends MCPClient with RootsSupport {
   final List<String> serverCommands;
   final List<ServerConnection> serverConnections = [];
   final Map<String, ServerConnection> connectionForFunction = {};
+  final Map<String, (Resource, ServerConnection)> resourceForUri = {};
   final List<gemini.Content> chatHistory = [];
   final gemini.GenerativeModel model;
   final bool verbose;
@@ -181,9 +182,43 @@ final class WorkflowClient extends MCPClient with RootsSupport {
     await _initializeServers();
     _listenToLogs();
     final serverTools = await _listServerCapabilities();
+    final serverResources = await _listServerResources();
+    resourceForUri.addAll(serverResources);
+    final resourcesBuffer = new StringBuffer('''
+## Resources
+
+The following are available resources that you can ask to read using the
+`readResource` tool.
+
+Before beginning any task you should always read the relevant resources.
+
+''');
+    for (final entry in serverResources.entries) {
+      resourcesBuffer.writeln('''
+### ${entry.key}
+
+name: ${entry.value.$1.name}
+description: ${entry.value.$1.description}
+''');
+    }
+    _addToHistory(resourcesBuffer.toString());
+    serverTools.add(
+      gemini.Tool(
+        functionDeclarations: [
+          gemini.FunctionDeclaration(
+            'readResource',
+            'reads a resource by its URI',
+            gemini.Schema.string(description: 'The resource URI to read'),
+          ),
+        ],
+      ),
+    );
 
     // Introduce yourself.
-    _addToHistory('Please introduce yourself and explain how you can help.');
+    _addToHistory('''
+## Chat start
+
+Please introduce yourself and explain how you can help.''');
     final introResponse = await _generateContent(
       context: chatHistory,
       tools: serverTools,
@@ -373,6 +408,26 @@ final class WorkflowClient extends MCPClient with RootsSupport {
   /// Invokes a function and adds the result as context to the chat history.
   Future<void> _handleFunctionCall(gemini.FunctionCall functionCall) async {
     chatHistory.add(gemini.Content.model([functionCall]));
+    if (functionCall.name == 'readResource') {
+      final uri = functionCall.args['uri'] as String;
+      final resource = resourceForUri[uri];
+      if (resource == null) {
+        chatHistory.add(
+          gemini.Content.model([gemini.TextPart('Resource $uri not found')]),
+        );
+        return;
+      }
+      final resourceContent = await resource.$2.readResource(
+        ReadResourceRequest(uri: uri),
+      );
+      chatHistory.add(
+        gemini.Content.model([
+          for (var part in resourceContent.contents)
+            gemini.TextPart((part as TextResourceContents).text),
+        ]),
+      );
+      return;
+    }
     final connection = connectionForFunction[functionCall.name]!;
     final result = await connection.callTool(
       CallToolRequest(name: functionCall.name, arguments: functionCall.args),
@@ -489,6 +544,19 @@ final class WorkflowClient extends MCPClient with RootsSupport {
     return functions.isEmpty
         ? []
         : [gemini.Tool(functionDeclarations: functions)];
+  }
+
+  /// Lists all the resources available the [serverConnections].
+  Future<Map<String, (Resource, ServerConnection)>>
+  _listServerResources() async {
+    final resources = <String, (Resource, ServerConnection)>{};
+    for (var connection in serverConnections) {
+      final response = await connection.listResources();
+      for (var resource in response.resources) {
+        resources[resource.uri] = (resource, connection);
+      }
+    }
+    return resources;
   }
 
   gemini.Schema _schemaToGeminiSchema(Schema inputSchema, {bool? nullable}) {

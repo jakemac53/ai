@@ -1,0 +1,21 @@
+---
+name: assets-media
+description: Content covering incorporating assets and media in Flutter apps.
+metadata:
+  url: https://docs.flutter.dev/ui/assets
+  last_modified: Thu, 22 Jan 2026 01:01:25 GMT
+---
+
+# Assets & media
+
+[Transforming assets at build time\
+\
+How to set up automatic transformation of images (and other assets) in your Flutter app.](/ui/assets/asset-transformation) [Adding assets and images\
+\
+How to use images (and other assets) in your Flutter app.](/ui/assets/assets-and-images)
+
+Was this page's content helpful?
+
+thumb\_upthumb\_down
+
+Unless stated otherwise, the documentation on this site reflects Flutter 3.38.6. Page last updated on 2024-4-4. [View source](https://github.com/flutter/website/blob/main/src/content/ui/assets/index.md) or [report an issue](https://github.com/flutter/website/issues/new?template=1_page_issue.yml&page-url=https://docs.flutter.dev/ui/assets&page-source=https://github.com/flutter/website/blob/main/src/content/ui/assets/index.md "Report an issue with this page").
