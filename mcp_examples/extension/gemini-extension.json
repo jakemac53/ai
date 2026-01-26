@@ -1,10 +1,10 @@
 {
   "name": "mcp-examples",
   "version": "1.0.0",
-  "mcpServers": { 
+  "mcpServers": {
     "skills-server": {
       "command": "dart",
-      "args": ["/usr/local/google/home/jakemac/ai/mcp_examples/bin/skill_server.dart"],
+      "args": ["${extensionPath}/../bin/skill_server.dart"],
       "timeout": 30000
     }
   }
