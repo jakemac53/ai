@@ -208,7 +208,14 @@ description: ${entry.value.$1.description}
           gemini.FunctionDeclaration(
             'readResource',
             'reads a resource by its URI',
-            gemini.Schema.string(description: 'The resource URI to read'),
+            gemini.Schema.object(
+              properties: {
+                'uri': gemini.Schema.string(
+                  description: 'The resource URI to read',
+                ),
+              },
+              requiredProperties: ['uri'],
+            ),
           ),
         ],
       ),
@@ -529,6 +536,9 @@ Please introduce yourself and explain how you can help.''');
   Future<List<gemini.Tool>> _listServerCapabilities() async {
     final functions = <gemini.FunctionDeclaration>[];
     for (var connection in serverConnections) {
+      if (connection.serverCapabilities.tools == null) {
+        continue;
+      }
       final response = await connection.listTools();
       for (var tool in response.tools) {
         functions.add(
@@ -551,6 +561,9 @@ Please introduce yourself and explain how you can help.''');
   _listServerResources() async {
     final resources = <String, (Resource, ServerConnection)>{};
     for (var connection in serverConnections) {
+      if (connection.serverCapabilities.resources == null) {
+        continue;
+      }
       final response = await connection.listResources();
       for (var resource in response.resources) {
         resources[resource.uri] = (resource, connection);
