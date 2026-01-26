@@ -1,3 +1,16 @@
+// Copyright (c) 2026, the Dart project authors.  Please see the AUTHORS file
+// for details. All rights reserved. Use of this source code is governed by a
+// BSD-style license that can be found in the LICENSE file.
+
+/// An MCP Server which loads "skill" files from a `.agent-skills` directory.
+///
+/// These are exposed as MCP Resources, using the `skill:` URI scheme, with the
+/// name of the skill as the path.
+///
+/// Note that clients must support auto inclusion of MCP Resources in the
+/// context, for these skills to function properly.
+library;
+
 import 'dart:async';
 import 'dart:io';
 import 'package:dart_mcp/server.dart';
@@ -6,8 +19,22 @@ import 'package:glob/glob.dart';
 import 'package:glob/list_local_fs.dart';
 import 'package:yaml/yaml.dart';
 
-void main() {
-  SkillServer.fromStreamChannel(stdioChannel(input: stdin, output: stdout));
+void main(List<String> args) {
+  var path = '.agent-skills';
+  if (args.isNotEmpty) {
+    // Only one argument is allowed
+    path = args.single;
+  }
+  final skillsDir = Directory(path);
+  if (!Directory(path).existsSync()) {
+    throw StateError(
+      'Unable to load skills from directory ${skillsDir.absolute.path}',
+    );
+  }
+  SkillServer.fromStreamChannel(
+    stdioChannel(input: stdin, output: stdout),
+    skillsDir,
+  );
 }
 
 typedef Logger =
@@ -20,7 +47,9 @@ typedef Logger =
 
 final class SkillServer extends MCPServer
     with ResourcesSupport, ToolsSupport, LoggingSupport {
-  SkillServer.fromStreamChannel(super.channel)
+  final Directory skillsDir;
+
+  SkillServer.fromStreamChannel(super.channel, this.skillsDir)
     : super.fromStreamChannel(
         implementation: Implementation(name: 'skills-server', version: '0.1.0'),
       );
@@ -38,7 +67,7 @@ final class SkillServer extends MCPServer
     });
 
     // Add the skills as resources
-    final skills = await getSkills(this.log);
+    final skills = await getSkills(this.log, skillsDir.absolute.path);
     for (final skill in skills) {
       try {
         var uri = 'skill:///${skill.name}';
@@ -58,9 +87,7 @@ final class SkillServer extends MCPServer
   }
 }
 
-const path = '/usr/local/google/home/jakemac/ai/.agent-skills';
-
-Future<List<Skill>> getSkills(Logger log) async {
+Future<List<Skill>> getSkills(Logger log, String path) async {
   final glob = Glob('**/*.md');
   final files = glob.listSync(root: path);
   return files
