@@ -41,6 +41,7 @@ base mixin FlutterLauncherSupport
   @override
   FutureOr<InitializeResult> initialize(InitializeRequest request) {
     registerTool(launchAppTool, _launchApp);
+    registerTool(debugAppTool, _debugApp);
     registerTool(stopAppTool, _stopApp);
     registerTool(listDevicesTool, _listDevices);
     registerTool(getAppLogsTool, _getAppLogs);
@@ -96,7 +97,60 @@ base mixin FlutterLauncherSupport
     ),
   )..categories = [FeatureCategory.flutter];
 
+  /// A tool to debug a Flutter application.
+  final debugAppTool = Tool(
+    name: 'debug_app',
+    description:
+        'Launches a Flutter application in debug mode with --start-paused and '
+        'waits for the first pause event. Returns its DTD URI.',
+    inputSchema: Schema.object(
+      properties: {
+        'root': Schema.string(
+          description: 'The root directory of the Flutter project.',
+        ),
+        'target': Schema.string(
+          description:
+              'The main entry point file of the application. Defaults to '
+              '"lib/main.dart".',
+        ),
+        'device': Schema.string(
+          description:
+              'The device ID to launch the application on. To get a list of '
+              'available devices to present as choices, use the '
+              'list_devices tool.',
+        ),
+        'timeout': Schema.int(
+          description: 'Timeout in milliseconds, defaults to 90000.',
+        ),
+      },
+      required: ['root', 'device'],
+      additionalProperties: false,
+    ),
+    outputSchema: Schema.object(
+      properties: {
+        'dtdUri': Schema.string(
+          description: 'The DTD URI of the launched Flutter application.',
+        ),
+        'pid': Schema.int(
+          description: 'The process ID of the launched Flutter application.',
+        ),
+      },
+      required: ['dtdUri', 'pid'],
+    ),
+  );
+
   Future<CallToolResult> _launchApp(CallToolRequest request) async {
+    return _launchAppWithArgs(request);
+  }
+
+  Future<CallToolResult> _debugApp(CallToolRequest request) async {
+    return _launchAppWithArgs(request, extraArgs: ['--start-paused']);
+  }
+
+  Future<CallToolResult> _launchAppWithArgs(
+    CallToolRequest request, {
+    List<String> extraArgs = const [],
+  }) async {
     final root = request.arguments!['root'] as String;
     final target = request.arguments!['target'] as String?;
     final device = request.arguments!['device'] as String;
@@ -105,7 +159,8 @@ base mixin FlutterLauncherSupport
 
     log(
       LoggingLevel.debug,
-      'Launching app with root: $root, target: $target, device: $device',
+      'Launching app with root: $root, target: $target, device: $device, '
+      'extraArgs: $extraArgs',
     );
 
     Process? process;
@@ -118,6 +173,7 @@ base mixin FlutterLauncherSupport
           '--machine',
           '--device-id',
           device,
+          ...extraArgs,
           if (target != null) ...['--target', target],
         ],
         workingDirectory: root,

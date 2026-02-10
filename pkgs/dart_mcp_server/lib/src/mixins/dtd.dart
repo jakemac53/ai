@@ -197,6 +197,7 @@ base mixin DartToolingDaemonSupport
     registerTool(getActiveLocationTool, _getActiveLocation);
     registerTool(hotRestartTool, hotRestart);
     registerTool(hotReloadTool, hotReload);
+    registerTool(vmServiceTool, _callVmServiceTool);
 
     if (enableScreenshots) registerTool(screenshotTool, takeScreenshot);
     registerTool(getWidgetTreeTool, widgetTree);
@@ -225,6 +226,97 @@ base mixin DartToolingDaemonSupport
   Future<void> shutdown() async {
     await _resetDtd();
     await super.shutdown();
+  }
+
+  Future<CallToolResult> _callVmServiceTool(CallToolRequest request) async {
+    return _callOnVmService(
+      callback: (vmService) async {
+        final vm = await vmService.getVM();
+        final appListener = await _AppListener.forVmService(vmService, this);
+        final firstIsolateId = vm.isolates!.first.id!;
+        final isolateId =
+            request.arguments?['isolateId'] as String? ?? firstIsolateId;
+        final command = request.arguments?['command'] as String;
+        final args =
+            request.arguments?['args'] as Map<String, Object?>? ?? const {};
+
+        try {
+          Map<String, Object?> result;
+          switch (command) {
+            case 'waitForPause':
+              result = (await appListener.waitForPause(isolateId)).toJson();
+            case 'getVM':
+              result = vm.toJson();
+            case 'getIsolate':
+              result = (await vmService.getIsolate(isolateId)).toJson();
+            case 'getScripts':
+              result = (await vmService.getScripts(isolateId)).toJson();
+            case 'getStack':
+              final limit = args['limit'] as int?;
+              result = (await vmService.getStack(
+                isolateId,
+                limit: limit,
+              )).toJson();
+            case 'evaluate':
+              final targetId = args['targetId'] as String;
+              final expression = args['expression'] as String;
+              result = (await vmService.evaluate(
+                isolateId,
+                targetId,
+                expression,
+              )).toJson();
+            case 'evaluateInFrame':
+              final frameIndex = args['frameIndex'] as int;
+              final expression = args['expression'] as String;
+              result = (await vmService.evaluateInFrame(
+                isolateId,
+                frameIndex,
+                expression,
+              )).toJson();
+            case 'getObject':
+              final objectId = args['objectId'] as String;
+              result = (await vmService.getObject(
+                isolateId,
+                objectId,
+              )).toJson();
+            case 'addBreakpoint':
+              final scriptUri = args['scriptUri'] as String;
+              final line = args['line'] as int;
+              final column = args['column'] as int?;
+              result = (await vmService.addBreakpointWithScriptUri(
+                isolateId,
+                scriptUri,
+                line,
+                column: column,
+              )).toJson();
+            case 'removeBreakpoint':
+              final breakpointId = args['breakpointId'] as String;
+              result = (await vmService.removeBreakpoint(
+                isolateId,
+                breakpointId,
+              )).toJson();
+            case 'pause':
+              result = (await vmService.pause(isolateId)).toJson();
+            case 'resume':
+              final step = args['step'] as String?;
+              result = (await vmService.resume(isolateId, step: step)).toJson();
+            default:
+              return CallToolResult(
+                isError: true,
+                content: [TextContent(text: 'Unknown command: $command')],
+              );
+          }
+          return CallToolResult(
+            content: [TextContent(text: jsonEncode(result))],
+          );
+        } catch (e) {
+          return CallToolResult(
+            isError: true,
+            content: [TextContent(text: 'VM Service command failed: $e')],
+          )..failureReason = CallToolFailureReason.unhandledError;
+        }
+      },
+    );
   }
 
   Future<CallToolResult> _callFlutterDriver(CallToolRequest request) async {
@@ -1150,6 +1242,58 @@ base mixin DartToolingDaemonSupport
           FeatureCategory.analysis,
         ];
 
+  @visibleForTesting
+  static final vmServiceTool = Tool(
+    name: 'vm_service',
+    description: 'Executes commands against the Dart VM Service.',
+    inputSchema: Schema.object(
+      properties: {
+        'command': Schema.string(
+          description: 'The command to execute.',
+          enumValues: [
+            'getStack',
+            'getVM',
+            'getIsolate',
+            'getScripts',
+            'evaluate',
+            'evaluateInFrame',
+            'getObject',
+            'addBreakpoint',
+            'removeBreakpoint',
+            'resume',
+            'pause',
+            'waitForPause',
+          ],
+        ),
+        'isolateId': Schema.string(
+          description:
+              'The isolate ID to execute the command on. Defaults to the first '
+              'isolate.',
+        ),
+        'args': Schema.object(
+          description: 'Arguments for the command.',
+          properties: {
+            'scriptUri': Schema.string(description: 'For addBreakpoint'),
+            'line': Schema.int(description: 'For addBreakpoint'),
+            'column': Schema.int(description: 'For addBreakpoint'),
+            'breakpointId': Schema.string(description: 'For removeBreakpoint'),
+            'targetId': Schema.string(
+              description:
+                  'For evaluate. The ID of the target object, library, or '
+                  'class.',
+            ),
+            'expression': Schema.string(description: 'For evaluate'),
+            'objectId': Schema.string(description: 'For getObject'),
+            'limit': Schema.int(description: 'For getStack'),
+            'step': Schema.string(description: 'For resume (Into, Over, Out)'),
+            'frameIndex': Schema.int(description: 'For evaluateInFrame'),
+          },
+        ),
+      },
+      required: ['command'],
+    ),
+  );
+
   static final _connectedAppsNotSupported = CallToolResult(
     isError: true,
     content: [
@@ -1243,6 +1387,13 @@ class _AppListener {
   /// Controller for the [errorsStream].
   final StreamController<String> _errorsController;
 
+  /// Controller for the debug stream.
+  final StreamController<Event> _debugController;
+
+  /// A map of isolate IDs to completers that will be completed when the isolate
+  /// is paused.
+  final Map<String, Completer<Event>> _pauseEventCompleters = {};
+
   /// Stream subscriptions we need to cancel on [shutdown].
   final Iterable<StreamSubscription<void>> _subscriptions;
 
@@ -1253,10 +1404,28 @@ class _AppListener {
     this.errorLog,
     this.registeredServices,
     this._errorsController,
+    this._debugController,
     this._subscriptions,
     this._vmService,
   ) {
     _vmService.onDone.then((_) => shutdown());
+    
+    _debugController.stream.listen((event) {
+      if (event.isolate?.id case final isolateId?) {
+        // Update the pause event state when the app is paused or resumed.
+        switch (event.kind) {
+          case EventKind.kPauseBreakpoint:
+          case EventKind.kPauseException:
+          case EventKind.kPauseInterrupted:
+          case EventKind.kPauseExit:
+            _pauseEventCompleters[isolateId]?.complete(event);
+          case EventKind.kResume:
+            _pauseEventCompleters.remove(isolateId);
+          default:
+            break;
+        }
+      }
+    });
   }
 
   /// Maintain a cache of app listeners by [VmService] instance as an
@@ -1274,6 +1443,7 @@ class _AppListener {
       // list but also expose it to clients so they can know when new errors
       // are added.
       final errorsController = StreamController<String>.broadcast();
+      final debugController = StreamController<Event>.broadcast();
       final errorLog = ErrorLog();
       errorsController.stream.listen(errorLog.add);
       final subscriptions = <StreamSubscription<void>>[];
@@ -1339,7 +1509,10 @@ class _AppListener {
           vmService.streamListen(EventStreams.kIsolate),
           vmService.streamListen(EventStreams.kStderr),
           vmService.streamListen(EventStreams.kService),
+          vmService.streamListen(EventStreams.kDebug),
         ].wait;
+
+        subscriptions.add(vmService.onDebugEvent.listen(debugController.add));
 
         final vm = await vmService.getVM();
         final isolate = await vmService.getIsolate(vm.isolates!.first.id!);
@@ -1353,6 +1526,7 @@ class _AppListener {
         errorLog,
         registeredServices,
         errorsController,
+        debugController,
         subscriptions,
         vmService,
       );
@@ -1384,10 +1558,16 @@ class _AppListener {
     );
   }
 
+  /// Waits for the next pause event on the given isolate.
+  Future<Event> waitForPause(String isolateId) {
+    return _pauseEventCompleters.putIfAbsent(isolateId, Completer.new).future;
+  }
+
   Future<void> shutdown() async {
     errorLog.clear();
     registeredServices.clear();
     await _errorsController.close();
+    await _debugController.close();
     await Future.wait(_subscriptions.map((s) => s.cancel()));
     try {
       await [
@@ -1395,6 +1575,7 @@ class _AppListener {
         _vmService.streamCancel(EventStreams.kIsolate),
         _vmService.streamCancel(EventStreams.kStderr),
         _vmService.streamCancel(EventStreams.kService),
+        _vmService.streamCancel(EventStreams.kDebug),
       ].wait;
     } on RPCError catch (_) {
       // The vm service might already be disposed which could cause these to
