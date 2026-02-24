@@ -74,6 +74,8 @@ final class WorkflowClient extends MCPClient
 
   final List<gemini.Content> _chatHistory = [];
   List<gemini.Content> get chatHistory => List.unmodifiable(_chatHistory);
+  final List<gemini.Content> _uiChatHistory = [];
+  List<gemini.Content> get uiChatHistory => List.unmodifiable(_uiChatHistory);
   final StreamController<void> _chatUpdateController =
       StreamController.broadcast();
   Stream<void> get onChatUpdate => _chatUpdateController.stream;
@@ -253,6 +255,8 @@ final class WorkflowClient extends MCPClient
   Future<String> _waitForInputAndAddToHistory() async {
     final input = await stdinQueue.next;
     _chatHistory.add(gemini.Content.text(input));
+    _uiChatHistory.add(gemini.Content.text(input));
+    _chatUpdateController.add(null);
     return input;
   }
 
@@ -328,6 +332,7 @@ final class WorkflowClient extends MCPClient
     // Add the non-personalized text to the context as it might lose some
     // useful info.
     _chatHistory.add(gemini.Content.model([gemini.TextPart(text)]));
+    _uiChatHistory.add(gemini.Content.model([gemini.TextPart(text)]));
     _chatUpdateController.add(null);
   }
 
@@ -336,6 +341,7 @@ final class WorkflowClient extends MCPClient
   /// Invokes a function and adds the result as context to the chat history.
   Future<void> _handleFunctionCall(gemini.FunctionCall functionCall) async {
     _chatHistory.add(gemini.Content.model([functionCall]));
+    _uiChatHistory.add(gemini.Content.model([functionCall]));
     _chatUpdateController.add(null);
     final connection = connectionForFunction[functionCall.name]!;
     final result = await connection.callTool(
@@ -351,6 +357,9 @@ final class WorkflowClient extends MCPClient
           _chatHistory.add(
             gemini.Content.data(content.mimeType, base64Decode(content.data)),
           );
+          _uiChatHistory.add(
+            gemini.Content.data(content.mimeType, base64Decode(content.data)),
+          );
           _chatUpdateController.add(null);
           response.writeln('Image added to context');
         default:
@@ -358,6 +367,11 @@ final class WorkflowClient extends MCPClient
       }
     }
     _chatHistory.add(
+      gemini.Content.functionResponse(functionCall.name, {
+        'output': response.toString(),
+      }),
+    );
+    _uiChatHistory.add(
       gemini.Content.functionResponse(functionCall.name, {
         'output': response.toString(),
       }),

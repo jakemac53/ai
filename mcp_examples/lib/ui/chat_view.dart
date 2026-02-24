@@ -14,9 +14,9 @@ class ChatView extends StatelessComponent {
       children: [
         Expanded(
           child: ListView.builder(
-            itemCount: client.chatHistory.length,
+            itemCount: client.uiChatHistory.length,
             itemBuilder: (context, index) {
-              final content = client.chatHistory[index];
+              final content = client.uiChatHistory[index];
               final role = content.role == 'user' ? 'You' : 'Model';
               final color =
                   content.role == 'user'
