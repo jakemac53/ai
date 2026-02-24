@@ -88,6 +88,7 @@ final class WorkflowClient extends MCPClient
   final List<String> serverCommands;
   final List<ServerConnection> serverConnections = [];
   final Map<String, ServerConnection?> connectionForFunction = {};
+  final Map<String, ServerConnection> connectionForPrompt = {};
 
   final List<gemini.Content> _chatHistory = [];
   List<gemini.Content> get chatHistory => List.unmodifiable(_chatHistory);
@@ -99,6 +100,11 @@ final class WorkflowClient extends MCPClient
 
   final ValueNotifier<ElicitRequest?> activeElicitation = ValueNotifier(null);
   Completer<ElicitResult>? _elicitationCompleter;
+
+  final ValueNotifier<Prompt?> activePromptElicitation = ValueNotifier(null);
+  Completer<Map<String, String>?>? _promptElicitationCompleter;
+
+  final ValueNotifier<List<Prompt>> availablePrompts = ValueNotifier([]);
 
   late final gemini.GenerativeService api;
   final http.Client _client;
@@ -146,6 +152,7 @@ final class WorkflowClient extends MCPClient
     await _initializeServers();
     _listenToLogs();
     final serverTools = await _listServerCapabilities();
+    await _fetchPrompts();
 
     // Introduce yourself.
     _addToHistory('Please introduce yourself and explain how you can help.');
@@ -192,6 +199,19 @@ final class WorkflowClient extends MCPClient
     _elicitationCompleter?.complete(result);
   }
 
+  Future<Map<String, String>?> elicitPromptArguments(Prompt prompt) async {
+    activePromptElicitation.value = prompt;
+    _promptElicitationCompleter = Completer<Map<String, String>?>();
+    final result = await _promptElicitationCompleter!.future;
+    activePromptElicitation.value = null;
+    _promptElicitationCompleter = null;
+    return result;
+  }
+
+  void submitPromptElicitation(Map<String, String>? arguments) {
+    _promptElicitationCompleter?.complete(arguments);
+  }
+
   /// Handles a response from the model.
   ///
   /// If this function returns a [String], then it should be fed back into the
@@ -220,13 +240,15 @@ final class WorkflowClient extends MCPClient
 
   Future<String> _waitForInputAndAddToHistory() async {
     final input = await stdinQueue.next;
-    final content = gemini.Content(
-      parts: [gemini.Part(text: input)],
-      role: 'user',
-    );
-    _chatHistory.add(content);
-    _uiChatHistory.add(content);
-    _chatUpdateController.add(null);
+    if (input.isNotEmpty) {
+      final content = gemini.Content(
+        parts: [gemini.Part(text: input)],
+        role: 'user',
+      );
+      _chatHistory.add(content);
+      _uiChatHistory.add(content);
+      _chatUpdateController.add(null);
+    }
     return input;
   }
 
@@ -446,7 +468,7 @@ final class WorkflowClient extends MCPClient
         final logServerName = connection.serverInfo?.name ?? '?';
         logger.stdout(
           'Server Log ($logServerName/${event.level.name}): '
-          '${event.logger != null ? '[${event.logger}] ' : ''}${event.data}',
+          '${event.level.name != 'info' ? '[${event.logger}] ' : ''}${event.data}',
         );
       });
     }
@@ -507,6 +529,84 @@ final class WorkflowClient extends MCPClient
         : [gemini.Tool(functionDeclarations: functions)];
   }
 
+  /// Lists all the prompts available on the [serverConnections].
+  Future<void> _fetchPrompts() async {
+    final prompts = <Prompt>[];
+    for (var connection in serverConnections) {
+      if (connection.serverCapabilities.prompts != null) {
+        try {
+          final response = await connection.listPrompts();
+          for (final prompt in response.prompts) {
+            prompts.add(prompt);
+            connectionForPrompt[prompt.name] = connection;
+          }
+        } catch (e) {
+          logger.stderr('Failed to list prompts from server: $e');
+        }
+      }
+    }
+    availablePrompts.value = prompts;
+  }
+
+  Future<void> usePrompt(Prompt prompt, Map<String, String>? arguments) async {
+    final connection = connectionForPrompt[prompt.name];
+    if (connection == null) {
+      logger.stderr('No connection found for prompt ${prompt.name}');
+      return;
+    }
+
+    try {
+      final response = await connection.getPrompt(
+        GetPromptRequest(name: prompt.name, arguments: arguments),
+      );
+
+      for (final message in response.messages) {
+        final role = message.role == Role.user ? 'user' : 'model';
+        final parts = <gemini.Part>[];
+
+        final content = message.content;
+        if (content is TextContent) {
+          parts.add(gemini.Part(text: content.text));
+        } else if (content is ImageContent) {
+          parts.add(
+            gemini.Part(
+              inlineData: gemini.Blob(
+                data: base64Decode(content.data),
+                mimeType: content.mimeType,
+              ),
+            ),
+          );
+        } else if (content is EmbeddedResource) {
+          final resource = content.resource;
+          if (resource is TextResourceContents) {
+            parts.add(
+              gemini.Part(
+                text: '[Resource: ${resource.uri}]\n${resource.text}',
+              ),
+            );
+          } else if (resource is BlobResourceContents) {
+            parts.add(
+              gemini.Part(
+                inlineData: gemini.Blob(
+                  data: base64Decode(resource.blob),
+                  mimeType: resource.mimeType ?? '',
+                ),
+              ),
+            );
+          }
+        }
+
+        final geminiContent = gemini.Content(parts: parts, role: role);
+        _chatHistory.add(geminiContent);
+        _uiChatHistory.add(geminiContent);
+      }
+      _chatUpdateController.add(null);
+      _inputController.add('');
+    } catch (e) {
+      logger.stderr('Failed to get prompt ${prompt.name}: $e');
+    }
+  }
+
   gemini.Schema _schemaToGeminiSchema(Schema inputSchema, {bool? nullable}) {
     final description = inputSchema.description ?? '';
 
@@ -526,9 +626,9 @@ final class WorkflowClient extends MCPClient
         return gemini.Schema(
           type: gemini.Type.object,
           description: description,
-          properties: properties ?? {},
+          properties: properties ?? <String, gemini.Schema>{},
           nullable: nullable ?? false,
-          required: objectSchema.required ?? [],
+          required: objectSchema.required ?? <String>[],
         );
       case JsonType.string
           when (inputSchema as StringSchema).enumValues == null:
@@ -543,7 +643,7 @@ final class WorkflowClient extends MCPClient
         final schema = inputSchema as StringSchema;
         return gemini.Schema(
           type: gemini.Type.string,
-          enum$: schema.enumValues?.toList() ?? [],
+          enum$: schema.enumValues?.whereType<String>().toList() ?? <String>[],
           description: description,
           nullable: nullable ?? false,
         );
@@ -608,7 +708,7 @@ tools available to you to aid in debugging, so make sure to use those.
 If a user asks for code that requires adding or removing a dependency, you have
 several tools available to you for managing pub dependencies.
 
-If a user asks you to complete a task that requires writing to files, only edit
+If a user asks for code that requires writing to files, only edit
 the part of the file that is required. After you apply the edit, the file should
 contain all of the contents it did before with the changes you made applied.
 After editing files, always fix any errors and perform a hot reload to apply the

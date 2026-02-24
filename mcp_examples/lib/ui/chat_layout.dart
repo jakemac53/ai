@@ -1,4 +1,5 @@
 import 'package:nocterm/nocterm.dart';
+import 'package:dart_mcp/client.dart';
 
 import 'package:mcp_examples/workflow_client.dart';
 import 'package:mcp_examples/buffered_logger.dart';
@@ -6,6 +7,8 @@ import 'package:mcp_examples/ui/chat_view.dart';
 import 'package:mcp_examples/ui/log_view.dart';
 import 'package:mcp_examples/ui/mcp_view.dart';
 import 'package:mcp_examples/ui/elicitation_overlay.dart';
+import 'package:mcp_examples/ui/prompt_autocomplete_overlay.dart';
+import 'package:mcp_examples/ui/prompt_arguments_overlay.dart';
 
 class ChatLayout extends StatefulComponent {
   final WorkflowClient client;
@@ -20,6 +23,11 @@ class ChatLayout extends StatefulComponent {
 class _ChatLayoutState extends State<ChatLayout> {
   int _activeTabIndex = 0;
   final ScrollController _chatScrollController = ScrollController();
+  final TextEditingController _inputController = TextEditingController();
+
+  bool _isPromptMode = false;
+  int _promptSelectedIndex = 0;
+  String _promptQuery = '';
 
   @override
   void initState() {
@@ -36,18 +44,48 @@ class _ChatLayoutState extends State<ChatLayout> {
     component.client.totalOutputTokens.addListener(_onTokensChanged);
     component.client.latestTotalTokens.addListener(_onTokensChanged);
     component.client.activeElicitation.addListener(_onElicitationChanged);
+    component.client.activePromptElicitation.addListener(_onElicitationChanged);
+
+    _inputController.addListener(_onInputChanged);
   }
 
   @override
   void dispose() {
     _chatScrollController.dispose();
+    _inputController.dispose();
     component.client.isThinking.removeListener(_onThinkingChanged);
     component.client.totalInputTokens.removeListener(_onTokensChanged);
     component.client.totalCachedInputTokens.removeListener(_onTokensChanged);
     component.client.totalOutputTokens.removeListener(_onTokensChanged);
     component.client.latestTotalTokens.removeListener(_onTokensChanged);
     component.client.activeElicitation.removeListener(_onElicitationChanged);
+    component.client.activePromptElicitation.removeListener(
+      _onElicitationChanged,
+    );
     super.dispose();
+  }
+
+  void _onInputChanged() {
+    final text = _inputController.text;
+    if (text.startsWith('/')) {
+      if (!_isPromptMode) {
+        setState(() {
+          _isPromptMode = true;
+          _promptSelectedIndex = 0;
+          _promptQuery = text.substring(1);
+        });
+      } else {
+        setState(() {
+          _promptQuery = text.substring(1);
+        });
+      }
+    } else {
+      if (_isPromptMode) {
+        setState(() {
+          _isPromptMode = false;
+        });
+      }
+    }
   }
 
   void _onElicitationChanged() {
@@ -60,6 +98,15 @@ class _ChatLayoutState extends State<ChatLayout> {
 
   void _onTokensChanged() {
     if (mounted) setState(() {});
+  }
+
+  List<Prompt> get _filteredPrompts {
+    final allPrompts = component.client.availablePrompts.value;
+    if (_promptQuery.isEmpty) return allPrompts;
+    final query = _promptQuery.toLowerCase();
+    return allPrompts
+        .where((p) => p.name.toLowerCase().contains(query))
+        .toList();
   }
 
   @override
@@ -94,6 +141,27 @@ class _ChatLayoutState extends State<ChatLayout> {
                       client: component.client,
                       request: component.client.activeElicitation.value!,
                     ),
+                  ),
+                ),
+              if (component.client.activePromptElicitation.value != null)
+                Center(
+                  child: Container(
+                    width: 60,
+                    height: 20,
+                    child: PromptArgumentsOverlay(
+                      client: component.client,
+                      prompt: component.client.activePromptElicitation.value!,
+                    ),
+                  ),
+                ),
+              if (_isPromptMode)
+                Positioned(
+                  bottom: 0,
+                  left: 2,
+                  right: 2,
+                  child: PromptAutocompleteOverlay(
+                    prompts: _filteredPrompts,
+                    selectedIndex: _promptSelectedIndex,
                   ),
                 ),
             ],
@@ -237,16 +305,66 @@ class _ChatLayoutState extends State<ChatLayout> {
                 ),
               )
               : TextField(
+                controller: _inputController,
                 focused: true,
                 minLines: 1,
                 maxLines: 5,
                 decoration: const InputDecoration(prefixText: '> '),
                 onSubmitted: (value) {
                   if (value.trim().isNotEmpty) {
-                    component.client.submitInput(value);
+                    if (_isPromptMode) {
+                      _selectPrompt();
+                    } else {
+                      component.client.submitInput(value);
+                      _inputController.clear();
+                    }
                   }
+                },
+                onKeyEvent: (event) {
+                  if (_isPromptMode) {
+                    final filtered = _filteredPrompts;
+                    if (event.logicalKey == LogicalKey.arrowDown) {
+                      setState(() {
+                        _promptSelectedIndex =
+                            (_promptSelectedIndex + 1) % filtered.length;
+                      });
+                      return true;
+                    } else if (event.logicalKey == LogicalKey.arrowUp) {
+                      setState(() {
+                        _promptSelectedIndex =
+                            (_promptSelectedIndex - 1 + filtered.length) %
+                            filtered.length;
+                      });
+                      return true;
+                    } else if (event.logicalKey == LogicalKey.escape) {
+                      setState(() {
+                        _isPromptMode = false;
+                      });
+                      return true;
+                    }
+                  }
+                  return false;
                 },
               ),
     );
+  }
+
+  void _selectPrompt() async {
+    final filtered = _filteredPrompts;
+    if (filtered.isNotEmpty && _promptSelectedIndex < filtered.length) {
+      final prompt = filtered[_promptSelectedIndex];
+      setState(() {
+        _isPromptMode = false;
+        _inputController.clear();
+      });
+
+      Map<String, String>? arguments;
+      if (prompt.arguments != null && prompt.arguments!.isNotEmpty) {
+        arguments = await component.client.elicitPromptArguments(prompt);
+        if (arguments == null) return; // Cancelled
+      }
+
+      component.client.usePrompt(prompt, arguments);
+    }
   }
 }
