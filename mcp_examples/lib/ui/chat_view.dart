@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:nocterm/nocterm.dart';
 
 import 'package:mcp_examples/workflow_client.dart';
@@ -81,9 +83,11 @@ class _ChatViewState extends State<ChatView> {
                                 if (p.text != null) {
                                   return p.text;
                                 } else if (p.functionCall != null) {
-                                  return '[Function Call: ${p.functionCall!.name}(${p.functionCall!.args})]';
+                                  return '[Function Call: ${p.functionCall!.name}'
+                                      '(${jsonEncode(p.functionCall!.args?.toJson())})]';
                                 } else if (p.functionResponse != null) {
-                                  return '[Function Response: ${p.functionResponse!.name} -> ${p.functionResponse!.response}]';
+                                  return '[Function Response: ${p.functionResponse!.name} -> '
+                                      '${jsonEncode(p.functionResponse!.response?.toJson())}]';
                                 } else if (p.inlineData != null) {
                                   return '[Data: ${p.inlineData!.mimeType}]';
                                 }

@@ -238,6 +238,8 @@ class _ChatLayoutState extends State<ChatLayout> {
               )
               : TextField(
                 focused: true,
+                minLines: 1,
+                maxLines: 5,
                 decoration: const InputDecoration(prefixText: '> '),
                 onSubmitted: (value) {
                   if (value.trim().isNotEmpty) {
