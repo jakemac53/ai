@@ -4,6 +4,7 @@ import 'package:mcp_examples/workflow_client.dart';
 import 'package:mcp_examples/buffered_logger.dart';
 import 'package:mcp_examples/ui/chat_view.dart';
 import 'package:mcp_examples/ui/log_view.dart';
+import 'package:mcp_examples/ui/mcp_view.dart';
 
 class ChatLayout extends StatefulComponent {
   final WorkflowClient client;
@@ -61,25 +62,36 @@ class _ChatLayoutState extends State<ChatLayout> {
             _buildTab('Chat', 0),
             const SizedBox(width: 2),
             _buildTab(logTabTitle, 1),
+            const SizedBox(width: 2),
+            _buildTab('MCP Servers', 2),
           ],
         ),
         const Divider(),
         // Main Content Area
         Expanded(
-          child:
-              _activeTabIndex == 0
-                  ? ChatView(client: component.client)
-                  : LogView(
-                    logger: component.logger,
-                    onActivated: () {
-                      component.logger.markLogsRead();
-                    },
-                  ),
-        ),
+          child: _buildMainContent()),
         // Sticky Footer
         _buildFooter(),
       ],
     );
+  }
+
+  Component _buildMainContent() {
+    switch (_activeTabIndex) {
+      case 0:
+        return ChatView(client: component.client);
+      case 1:
+        return LogView(
+          logger: component.logger,
+          onActivated: () {
+            component.logger.markLogsRead();
+          },
+        );
+      case 2:
+        return McpView(client: component.client);
+      default:
+        return const SizedBox();
+    }
   }
 
   Component _buildTab(String title, int index) {
