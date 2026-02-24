@@ -9,7 +9,8 @@ import 'package:google_generative_ai/google_generative_ai.dart' as gemini;
 
 import 'buffered_logger.dart';
 
-final class WorkflowClient extends MCPClient with RootsSupport {
+final class WorkflowClient extends MCPClient
+    with RootsSupport, ElicitationSupport {
   WorkflowClient(
     this.serverCommands, {
     required String geminiApiKey,
@@ -77,6 +78,9 @@ final class WorkflowClient extends MCPClient with RootsSupport {
       StreamController.broadcast();
   Stream<void> get onChatUpdate => _chatUpdateController.stream;
 
+  final ValueNotifier<ElicitRequest?> activeElicitation = ValueNotifier(null);
+  Completer<ElicitResult>? _elicitationCompleter;
+
   final gemini.GenerativeModel model;
   final bool verbose;
 
@@ -143,6 +147,24 @@ final class WorkflowClient extends MCPClient with RootsSupport {
       // Add the summary to the chat history.
       await _handleModelResponse(summary);
     }
+  }
+
+  @override
+  FutureOr<ElicitResult> handleElicitation(ElicitRequest request) async {
+    // Expose the current elicitation request directly to the Nocterm UI.
+    activeElicitation.value = request;
+
+    // Wait until the user completes it using submitElicitation
+    _elicitationCompleter = Completer<ElicitResult>();
+    final result = await _elicitationCompleter!.future;
+
+    activeElicitation.value = null;
+    _elicitationCompleter = null;
+    return result;
+  }
+
+  void submitElicitation(ElicitResult result) {
+    _elicitationCompleter?.complete(result);
   }
 
   /// Handles a response from the [model].

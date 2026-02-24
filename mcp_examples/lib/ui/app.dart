@@ -49,7 +49,7 @@ class _ClientAppState extends State<ClientApp> {
             _showSplash
                 ? Center(
                   child: AsciiText(
-                    'MCP Client',
+                    'Workflow Client',
                     font: AsciiFont.standard,
                     style: const TextStyle(color: Color(0xFF00E5FF)),
                   ),

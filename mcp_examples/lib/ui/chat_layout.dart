@@ -5,6 +5,7 @@ import 'package:mcp_examples/buffered_logger.dart';
 import 'package:mcp_examples/ui/chat_view.dart';
 import 'package:mcp_examples/ui/log_view.dart';
 import 'package:mcp_examples/ui/mcp_view.dart';
+import 'package:mcp_examples/ui/elicitation_overlay.dart';
 
 class ChatLayout extends StatefulComponent {
   final WorkflowClient client;
@@ -31,6 +32,7 @@ class _ChatLayoutState extends State<ChatLayout> {
     component.client.isThinking.addListener(_onThinkingChanged);
     component.client.totalInputTokens.addListener(_onTokensChanged);
     component.client.totalOutputTokens.addListener(_onTokensChanged);
+    component.client.activeElicitation.addListener(_onElicitationChanged);
   }
 
   @override
@@ -38,7 +40,12 @@ class _ChatLayoutState extends State<ChatLayout> {
     component.client.isThinking.removeListener(_onThinkingChanged);
     component.client.totalInputTokens.removeListener(_onTokensChanged);
     component.client.totalOutputTokens.removeListener(_onTokensChanged);
+    component.client.activeElicitation.removeListener(_onElicitationChanged);
     super.dispose();
+  }
+
+  void _onElicitationChanged() {
+    if (mounted) setState(() {});
   }
 
   void _onThinkingChanged() {
@@ -69,7 +76,23 @@ class _ChatLayoutState extends State<ChatLayout> {
         const Divider(),
         // Main Content Area
         Expanded(
-          child: _buildMainContent()),
+          child: Stack(
+            children: [
+              _buildMainContent(),
+              if (component.client.activeElicitation.value != null)
+                Center(
+                  child: Container(
+                    width: 60,
+                    height: 20,
+                    child: ElicitationOverlay(
+                      client: component.client,
+                      request: component.client.activeElicitation.value!,
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
         // Sticky Footer
         _buildFooter(),
       ],
