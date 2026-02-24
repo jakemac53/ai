@@ -19,6 +19,7 @@ class ChatLayout extends StatefulComponent {
 
 class _ChatLayoutState extends State<ChatLayout> {
   int _activeTabIndex = 0;
+  final ScrollController _chatScrollController = ScrollController();
 
   @override
   void initState() {
@@ -39,6 +40,7 @@ class _ChatLayoutState extends State<ChatLayout> {
 
   @override
   void dispose() {
+    _chatScrollController.dispose();
     component.client.isThinking.removeListener(_onThinkingChanged);
     component.client.totalInputTokens.removeListener(_onTokensChanged);
     component.client.totalCachedInputTokens.removeListener(_onTokensChanged);
@@ -106,7 +108,10 @@ class _ChatLayoutState extends State<ChatLayout> {
   Component _buildMainContent() {
     switch (_activeTabIndex) {
       case 0:
-        return ChatView(client: component.client);
+        return ChatView(
+          client: component.client,
+          controller: _chatScrollController,
+        );
       case 1:
         return LogView(
           logger: component.logger,
@@ -139,7 +144,7 @@ class _ChatLayoutState extends State<ChatLayout> {
             color: isActive ? const Color(0xFF00E5FF) : const Color(0xFF555555),
           ),
         ),
-        padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 1),
+        padding: const EdgeInsets.symmetric(horizontal: 1, vertical: 0),
         child: Text(
           title,
           style: TextStyle(
