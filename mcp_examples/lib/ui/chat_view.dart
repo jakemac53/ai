@@ -1,4 +1,3 @@
-import 'package:google_generative_ai/google_generative_ai.dart' as gemini;
 import 'package:nocterm/nocterm.dart';
 
 import 'package:mcp_examples/workflow_client.dart';
@@ -79,14 +78,14 @@ class _ChatViewState extends State<ChatView> {
                         child: Text(
                           content.parts
                               .map((p) {
-                                if (p is gemini.TextPart) {
+                                if (p.text != null) {
                                   return p.text;
-                                } else if (p is gemini.FunctionCall) {
-                                  return '[Function Call: ${p.name}(${p.args})]';
-                                } else if (p is gemini.FunctionResponse) {
-                                  return '[Function Response: ${p.name} -> ${p.response}]';
-                                } else if (p is gemini.DataPart) {
-                                  return '[Data: ${p.mimeType}]';
+                                } else if (p.functionCall != null) {
+                                  return '[Function Call: ${p.functionCall!.name}(${p.functionCall!.args})]';
+                                } else if (p.functionResponse != null) {
+                                  return '[Function Response: ${p.functionResponse!.name} -> ${p.functionResponse!.response}]';
+                                } else if (p.inlineData != null) {
+                                  return '[Data: ${p.inlineData!.mimeType}]';
                                 }
                                 return p.toString();
                               })

@@ -5,7 +5,11 @@ import 'dart:io';
 import 'package:async/async.dart';
 import 'package:dart_mcp/client.dart';
 import 'package:dart_mcp/stdio.dart';
-import 'package:google_generative_ai/google_generative_ai.dart' as gemini;
+import 'package:google_cloud_ai_generativelanguage_v1beta/generativelanguage.dart'
+    as gemini;
+import 'package:google_cloud_protobuf/protobuf.dart' as pb;
+import 'package:googleapis_auth/auth_io.dart' as auth;
+import 'package:http/http.dart' as http;
 
 import 'buffered_logger.dart';
 
@@ -20,13 +24,12 @@ final class WorkflowClient extends MCPClient
     this.verbose = false,
     String? persona,
     File? logFile,
-  }) : model = gemini.GenerativeModel(
-         model: model,
-         apiKey: geminiApiKey,
-         systemInstruction: systemInstructions(persona: persona),
-       ),
+  }) : modelName = model.startsWith('models/') ? model : 'models/$model',
+       _client = auth.clientViaApiKey(geminiApiKey),
+       systemInstruction = systemInstructions(persona: persona),
        stdinQueue = StreamQueue(_inputController.stream),
        super(Implementation(name: 'Gemini workflow client', version: '0.1.0')) {
+    api = gemini.GenerativeService(client: _client);
     logSink = _createLogSink(logFile);
     addRoot(
       Root(
@@ -35,18 +38,30 @@ final class WorkflowClient extends MCPClient
       ),
     );
     _chatHistory.add(
-      gemini.Content.text(
-        'The current working directory is '
-        '${Directory.current.absolute.uri.toString()}. Convert all relative '
-        'URIs to absolute using this root. For tools that want a root, use '
-        'this URI.',
+      gemini.Content(
+        parts: [
+          gemini.Part(
+            text:
+                'The current working directory is '
+                '${Directory.current.absolute.uri.toString()}. Convert all relative '
+                'URIs to absolute using this root. For tools that want a root, use '
+                'this URI.',
+          ),
+        ],
+        role: 'user',
       ),
     );
     if (dtdUri != null) {
       _chatHistory.add(
-        gemini.Content.text(
-          'If you need to establish a Dart Tooling Daemon (DTD) connection, '
-          'use this URI: $dtdUri.',
+        gemini.Content(
+          parts: [
+            gemini.Part(
+              text:
+                  'If you need to establish a Dart Tooling Daemon (DTD) connection, '
+                  'use this URI: $dtdUri.',
+            ),
+          ],
+          role: 'user',
         ),
       );
     }
@@ -85,7 +100,10 @@ final class WorkflowClient extends MCPClient
   final ValueNotifier<ElicitRequest?> activeElicitation = ValueNotifier(null);
   Completer<ElicitResult>? _elicitationCompleter;
 
-  final gemini.GenerativeModel model;
+  late final gemini.GenerativeService api;
+  final http.Client _client;
+  final String modelName;
+  final gemini.Content systemInstruction;
   final bool verbose;
 
   int? _taskStartIndex;
@@ -174,28 +192,26 @@ final class WorkflowClient extends MCPClient
     _elicitationCompleter?.complete(result);
   }
 
-  /// Handles a response from the [model].
+  /// Handles a response from the model.
   ///
   /// If this function returns a [String], then it should be fed back into the
   /// model as a user message in order to continue the conversation.
   Future<String?> _handleModelResponse(gemini.Content response) async {
     String? continuation;
     for (var part in response.parts) {
-      switch (part) {
-        case gemini.TextPart():
-          _chatToUser(part.text);
+      if (part.text != null) {
+        _chatToUser(part.text!);
+        continuation = null;
+      } else if (part.functionCall != null) {
+        final functionCall = part.functionCall!;
+        if (functionCall.name == 'stop_workflow') {
           continuation = null;
-        case gemini.FunctionCall():
-          if (part.name == 'stop_workflow') {
-            continuation = null;
-          } else {
-            continuation = 'Please proceed to the next step of the plan.';
-          }
-          await _handleFunctionCall(part);
-        default:
-          logger.stderr(
-            'Unrecognized response type from the model: $response.',
-          );
+        } else {
+          continuation = 'Please proceed to the next step of the plan.';
+        }
+        await _handleFunctionCall(functionCall);
+      } else {
+        logger.stderr('Unrecognized response type from the model: $response.');
       }
     }
 
@@ -204,39 +220,51 @@ final class WorkflowClient extends MCPClient
 
   Future<String> _waitForInputAndAddToHistory() async {
     final input = await stdinQueue.next;
-    _chatHistory.add(gemini.Content.text(input));
-    _uiChatHistory.add(gemini.Content.text(input));
+    final content = gemini.Content(
+      parts: [gemini.Part(text: input)],
+      role: 'user',
+    );
+    _chatHistory.add(content);
+    _uiChatHistory.add(content);
     _chatUpdateController.add(null);
     return input;
   }
 
   void _addToHistory(String content) {
-    _chatHistory.add(gemini.Content.text(content));
+    _chatHistory.add(
+      gemini.Content(parts: [gemini.Part(text: content)], role: 'user'),
+    );
     _chatUpdateController.add(null);
   }
 
   Future<gemini.Content> _generateContent({
-    required Iterable<gemini.Content> context,
+    required List<gemini.Content> context,
     List<gemini.Tool>? tools,
   }) async {
     isThinking.value = true;
     final progress = logger.progress('thinking');
     gemini.GenerateContentResponse? response;
     try {
-      response = await model.generateContent(context, tools: tools);
-      return response.candidates.single.content;
-    } on gemini.GenerativeAIException catch (e) {
-      return gemini.Content.model([gemini.TextPart('Error: $e')]);
+      response = await api.generateContent(
+        gemini.GenerateContentRequest(
+          model: modelName,
+          contents: context,
+          tools: tools ?? [],
+          systemInstruction: systemInstruction,
+        ),
+      );
+      return response.candidates.single.content!;
+    } catch (e) {
+      return gemini.Content(
+        parts: [gemini.Part(text: 'Error: $e')],
+        role: 'model',
+      );
     } finally {
       if (response != null) {
         final inputTokens = response.usageMetadata?.promptTokenCount ?? 0;
         final outputTokens = response.usageMetadata?.candidatesTokenCount ?? 0;
-        // Note: google_generative_ai doesn't currently expose cached tokens
-        // in UsageMetadata directly in some versions, but we'll try to find it
-        // if available or assume it's part of promptTokenCount for now.
-        // If the API supports it, it might be in a field like 'cachedContentTokenCount'.
-        // For this example, we'll placeholder it.
-        final cachedTokens = 0; // Placeholder
+        final cachedTokens =
+            response.usageMetadata?.cachedContentTokenCount ?? 0;
 
         totalInputTokens.value += inputTokens;
         totalOutputTokens.value += outputTokens;
@@ -258,16 +286,15 @@ final class WorkflowClient extends MCPClient
 
   /// Prints `text` and adds it to the chat history
   void _chatToUser(String text) {
-    final content = gemini.Content.text(text);
-    final dashText = StringBuffer();
-    for (var part in content.parts.whereType<gemini.TextPart>()) {
-      dashText.write(part.text);
-    }
-    logger.stdout('\n$dashText');
+    final content = gemini.Content(
+      parts: [gemini.Part(text: text)],
+      role: 'model',
+    );
+    logger.stdout('\n$text');
     // Add the non-personalized text to the context as it might lose some
     // useful info.
-    _chatHistory.add(gemini.Content.model([gemini.TextPart(text)]));
-    _uiChatHistory.add(gemini.Content.model([gemini.TextPart(text)]));
+    _chatHistory.add(content);
+    _uiChatHistory.add(content);
     _chatUpdateController.add(null);
   }
 
@@ -275,8 +302,12 @@ final class WorkflowClient extends MCPClient
   ///
   /// Invokes a function and adds the result as context to the chat history.
   Future<void> _handleFunctionCall(gemini.FunctionCall functionCall) async {
-    _chatHistory.add(gemini.Content.model([functionCall]));
-    _uiChatHistory.add(gemini.Content.model([functionCall]));
+    final callContent = gemini.Content(
+      parts: [gemini.Part(functionCall: functionCall)],
+      role: 'model',
+    );
+    _chatHistory.add(callContent);
+    _uiChatHistory.add(callContent);
     _chatUpdateController.add(null);
 
     final connection = connectionForFunction[functionCall.name];
@@ -297,7 +328,7 @@ final class WorkflowClient extends MCPClient
             output = 'Workflow not started, you must start one first';
           } else {
             _chatHistory.removeRange(_taskStartIndex!, _chatHistory.length);
-            output = functionCall.args['summary'] as String;
+            output = functionCall.args?.fields['summary']?.stringValue ?? '';
             _taskStartIndex = null;
           }
         default:
@@ -305,7 +336,10 @@ final class WorkflowClient extends MCPClient
       }
     } else {
       final result = await connection.callTool(
-        CallToolRequest(name: functionCall.name, arguments: functionCall.args),
+        CallToolRequest(
+          name: functionCall.name,
+          arguments: functionCall.args?.toJson() as Map<String, Object?>? ?? {},
+        ),
       );
       final response = StringBuffer();
 
@@ -314,12 +348,14 @@ final class WorkflowClient extends MCPClient
           case final TextContent content when content.isText:
             response.writeln(content.text);
           case final ImageContent content when content.isImage:
-            _chatHistory.add(
-              gemini.Content.data(content.mimeType, base64Decode(content.data)),
+            final part = gemini.Part(
+              inlineData: gemini.Blob(
+                data: base64Decode(content.data),
+                mimeType: content.mimeType,
+              ),
             );
-            _uiChatHistory.add(
-              gemini.Content.data(content.mimeType, base64Decode(content.data)),
-            );
+            _chatHistory.add(gemini.Content(parts: [part], role: 'user'));
+            _uiChatHistory.add(gemini.Content(parts: [part], role: 'user'));
             _chatUpdateController.add(null);
             response.writeln('Image added to context');
           default:
@@ -329,12 +365,19 @@ final class WorkflowClient extends MCPClient
       output = response.toString();
     }
 
-    _chatHistory.add(
-      gemini.Content.functionResponse(functionCall.name, {'output': output}),
+    final responseContent = gemini.Content(
+      parts: [
+        gemini.Part(
+          functionResponse: gemini.FunctionResponse(
+            name: functionCall.name,
+            response: pb.Struct.fromJson({'output': output}),
+          ),
+        ),
+      ],
+      role: 'user',
     );
-    _uiChatHistory.add(
-      gemini.Content.functionResponse(functionCall.name, {'output': output}),
-    );
+    _chatHistory.add(responseContent);
+    _uiChatHistory.add(responseContent);
     _chatUpdateController.add(null);
   }
 
@@ -417,9 +460,9 @@ final class WorkflowClient extends MCPClient
       for (var tool in response.tools) {
         functions.add(
           gemini.FunctionDeclaration(
-            tool.name,
-            tool.description ?? '',
-            _schemaToGeminiSchema(tool.inputSchema),
+            name: tool.name,
+            description: tool.description ?? '',
+            parameters: _schemaToGeminiSchema(tool.inputSchema),
           ),
         );
         connectionForFunction[tool.name] = connection;
@@ -429,27 +472,31 @@ final class WorkflowClient extends MCPClient
     // Add internal workflow tools
     functions.add(
       gemini.FunctionDeclaration(
-        'start_workflow',
-        'Call this tool to signal that you are starting a new workflow '
+        name: 'start_workflow',
+        description:
+            'Call this tool to signal that you are starting a new workflow '
             'execution after your plan has been approved.',
-        gemini.Schema.object(properties: {}),
+        parameters: gemini.Schema(type: gemini.Type.object, properties: {}),
       ),
     );
     connectionForFunction['start_workflow'] = null;
 
     functions.add(
       gemini.FunctionDeclaration(
-        'stop_workflow',
-        'Call this tool when you have completed all the steps in your plan.',
-        gemini.Schema.object(
+        name: 'stop_workflow',
+        description:
+            'Call this tool when you have completed all the steps in your plan.',
+        parameters: gemini.Schema(
+          type: gemini.Type.object,
           properties: {
-            'summary': gemini.Schema.string(
+            'summary': gemini.Schema(
+              type: gemini.Type.string,
               description:
                   'A concise summary of all the work performed during '
                   'this workflow.',
             ),
           },
-          requiredProperties: ['summary'],
+          required: ['summary'],
         ),
       ),
     );
@@ -461,7 +508,7 @@ final class WorkflowClient extends MCPClient
   }
 
   gemini.Schema _schemaToGeminiSchema(Schema inputSchema, {bool? nullable}) {
-    final description = inputSchema.description;
+    final description = inputSchema.description ?? '';
 
     switch (inputSchema.type) {
       case JsonType.object:
@@ -476,25 +523,29 @@ final class WorkflowClient extends MCPClient
               ),
           };
         }
-        return gemini.Schema.object(
+        return gemini.Schema(
+          type: gemini.Type.object,
           description: description,
           properties: properties ?? {},
-          nullable: nullable,
+          nullable: nullable ?? false,
+          required: objectSchema.required ?? [],
         );
       case JsonType.string
           when (inputSchema as StringSchema).enumValues == null:
-        return gemini.Schema.string(
-          description: inputSchema.description,
-          nullable: nullable,
+        return gemini.Schema(
+          type: gemini.Type.string,
+          description: description,
+          nullable: nullable ?? false,
         );
       case JsonType.string
           when (inputSchema as StringSchema).enumValues != null:
       case JsonType.enumeration: // ignore: deprecated_member_use
         final schema = inputSchema as StringSchema;
-        return gemini.Schema.enumString(
-          enumValues: schema.enumValues!.toList(),
+        return gemini.Schema(
+          type: gemini.Type.string,
+          enum$: schema.enumValues?.toList() ?? [],
           description: description,
-          nullable: nullable,
+          nullable: nullable ?? false,
         );
       case JsonType.list:
         final listSchema = inputSchema as ListSchema;
@@ -503,27 +554,31 @@ final class WorkflowClient extends MCPClient
                 ?
                 // A bit of a hack here, gemini requires item schemas, just fall
                 // back on string.
-                gemini.Schema.string()
+                gemini.Schema(type: gemini.Type.string)
                 : _schemaToGeminiSchema(listSchema.items!);
-        return gemini.Schema.array(
+        return gemini.Schema(
+          type: gemini.Type.array,
           description: description,
           items: itemSchema,
-          nullable: nullable,
+          nullable: nullable ?? false,
         );
       case JsonType.num:
-        return gemini.Schema.number(
+        return gemini.Schema(
+          type: gemini.Type.number,
           description: description,
-          nullable: nullable,
+          nullable: nullable ?? false,
         );
       case JsonType.int:
-        return gemini.Schema.integer(
+        return gemini.Schema(
+          type: gemini.Type.integer,
           description: description,
-          nullable: nullable,
+          nullable: nullable ?? false,
         );
       case JsonType.bool:
-        return gemini.Schema.boolean(
+        return gemini.Schema(
+          type: gemini.Type.boolean,
           description: description,
-          nullable: nullable,
+          nullable: nullable ?? false,
         );
       default:
         throw UnimplementedError(
@@ -535,11 +590,13 @@ final class WorkflowClient extends MCPClient
 
 /// If a [persona] is passed, it will be added to the system prompt as its own
 /// paragraph.
-gemini.Content systemInstructions({String? persona}) =>
-    gemini.Content.system('''
+gemini.Content systemInstructions({String? persona}) => gemini.Content(
+  parts: [
+    gemini.Part(
+      text: '''
 You are a developer assistant for Dart and Flutter apps. You are an expert
 software developer.
-${persona != null ? '\n\$persona\n' : ''}
+${persona != null ? '\n$persona\n' : ''}
 You can help developers with writing code by generating Dart and Flutter code or
 making changes to their existing app. You can also help developers with
 debugging their code by connecting into the live state of their apps, helping
@@ -578,4 +635,8 @@ level process:
 
 If, while executing your plan, you end up skipping steps because they are no
 longer applicable, explain why you are skipping them.
-''');
+''',
+    ),
+  ],
+  role: 'system',
+);
