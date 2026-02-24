@@ -37,11 +37,11 @@ void main(List<String> args) {
     print(argParser.usage);
     exit(0);
   }
-  
+
   final serverCommands = parsedArgs['server'] as List<String>;
   final logger = BufferedLogger();
   final logFilePath = parsedArgs.option('log');
-  
+
   final client = WorkflowClient(
     serverCommands,
     geminiApiKey: geminiApiKey,
@@ -51,7 +51,7 @@ void main(List<String> args) {
     logger: logger,
     logFile: logFilePath != null ? File(logFilePath) : null,
   );
-  
+
   runApp(ClientApp(client: client, logger: logger));
 }
 
@@ -86,5 +86,3 @@ final argParser =
         help: 'Pass the name of the model to use to run inferences.',
       )
       ..addFlag('help', abbr: 'h', help: 'Print the usage for this command.');
-
-

@@ -31,7 +31,9 @@ class _ChatLayoutState extends State<ChatLayout> {
     });
     component.client.isThinking.addListener(_onThinkingChanged);
     component.client.totalInputTokens.addListener(_onTokensChanged);
+    component.client.totalCachedInputTokens.addListener(_onTokensChanged);
     component.client.totalOutputTokens.addListener(_onTokensChanged);
+    component.client.latestTotalTokens.addListener(_onTokensChanged);
     component.client.activeElicitation.addListener(_onElicitationChanged);
   }
 
@@ -39,7 +41,9 @@ class _ChatLayoutState extends State<ChatLayout> {
   void dispose() {
     component.client.isThinking.removeListener(_onThinkingChanged);
     component.client.totalInputTokens.removeListener(_onTokensChanged);
+    component.client.totalCachedInputTokens.removeListener(_onTokensChanged);
     component.client.totalOutputTokens.removeListener(_onTokensChanged);
+    component.client.latestTotalTokens.removeListener(_onTokensChanged);
     component.client.activeElicitation.removeListener(_onElicitationChanged);
     super.dispose();
   }
@@ -149,7 +153,12 @@ class _ChatLayoutState extends State<ChatLayout> {
 
   Component _buildFooter() {
     final inputTokens = component.client.totalInputTokens.value;
+    final cachedTokens = component.client.totalCachedInputTokens.value;
     final outputTokens = component.client.totalOutputTokens.value;
+    final latestTotal = component.client.latestTotalTokens.value;
+
+    const contextLimit = 1000000;
+    final contextUsage = latestTotal / contextLimit;
 
     return Column(
       children: [
@@ -164,17 +173,45 @@ class _ChatLayoutState extends State<ChatLayout> {
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Text(
-                ' Tokens: ↑ $inputTokens | ↓ $outputTokens ',
+                ' Tokens: ↑ $inputTokens ($cachedTokens cached) | ↓ $outputTokens ',
                 style: const TextStyle(color: Color(0xFF888888)),
               ),
-              if (component.client.isThinking.value)
-                const Text(
-                  '🤔 Thinking...',
-                  style: TextStyle(color: Color(0xFFFFD700)),
-                ),
+              Row(
+                children: [
+                  if (component.client.isThinking.value)
+                    const Text(
+                      '🤔 Thinking... ',
+                      style: TextStyle(color: Color(0xFFFFD700)),
+                    ),
+                  Text(
+                    ' Context: ${(contextUsage * 100).toStringAsFixed(1)}% ',
+                    style: const TextStyle(color: Color(0xFF888888)),
+                  ),
+                  _buildProgressBar(contextUsage, 20),
+                ],
+              ),
             ],
           ),
         ),
+      ],
+    );
+  }
+
+  Component _buildProgressBar(double fraction, int totalWidth) {
+    final filledWidth = (fraction * totalWidth).round().clamp(0, totalWidth);
+    final emptyWidth = totalWidth - filledWidth;
+    return Row(
+      children: [
+        const Text('[', style: TextStyle(color: Color(0xFF555555))),
+        Text(
+          '█' * filledWidth,
+          style: const TextStyle(color: Color(0xFF00E5FF)),
+        ),
+        Text(
+          ' ' * emptyWidth,
+          style: const TextStyle(color: Color(0xFF555555)),
+        ),
+        const Text(']', style: TextStyle(color: Color(0xFF555555))),
       ],
     );
   }

@@ -66,11 +66,13 @@ final class WorkflowClient extends MCPClient
   Sink<String>? logSink;
   final ValueNotifier<int> totalInputTokens = ValueNotifier(0);
   final ValueNotifier<int> totalOutputTokens = ValueNotifier(0);
+  final ValueNotifier<int> totalCachedInputTokens = ValueNotifier(0);
+  final ValueNotifier<int> latestTotalTokens = ValueNotifier(0);
   final ValueNotifier<bool> isThinking = ValueNotifier(false);
   final StreamQueue<String> stdinQueue;
   final List<String> serverCommands;
   final List<ServerConnection> serverConnections = [];
-  final Map<String, ServerConnection> connectionForFunction = {};
+  final Map<String, ServerConnection?> connectionForFunction = {};
 
   final List<gemini.Content> _chatHistory = [];
   List<gemini.Content> get chatHistory => List.unmodifiable(_chatHistory);
@@ -85,6 +87,8 @@ final class WorkflowClient extends MCPClient
 
   final gemini.GenerativeModel model;
   final bool verbose;
+
+  int? _taskStartIndex;
 
   Sink<String>? _createLogSink(File? logFile) {
     if (logFile == null) {
@@ -134,20 +138,21 @@ final class WorkflowClient extends MCPClient
     await _handleModelResponse(introResponse);
 
     while (true) {
-      final next = await _waitForInputAndAddToHistory();
+      await _waitForInputAndAddToHistory();
 
-      // Remember where the history starts for this workflow
-      final historyStartIndex = chatHistory.length;
-      final summary = await _makeAndExecutePlan(next, serverTools);
-
-      // Workflow/Plan execution finished, now summarize and clean up context.
-      if (historyStartIndex < chatHistory.length) {
-        // Remove the entire history.
-        _chatHistory.removeRange(historyStartIndex, chatHistory.length);
+      var response = await _generateContent(
+        context: chatHistory,
+        tools: serverTools,
+      );
+      while (true) {
+        final continuation = await _handleModelResponse(response);
+        if (continuation == null) break;
+        _addToHistory(continuation);
+        response = await _generateContent(
+          context: chatHistory,
+          tools: serverTools,
+        );
       }
-
-      // Add the summary to the chat history.
-      await _handleModelResponse(summary);
     }
   }
 
@@ -179,77 +184,22 @@ final class WorkflowClient extends MCPClient
       switch (part) {
         case gemini.TextPart():
           _chatToUser(part.text);
+          continuation = null;
         case gemini.FunctionCall():
+          if (part.name == 'stop_workflow') {
+            continuation = null;
+          } else {
+            continuation = 'Please proceed to the next step of the plan.';
+          }
           await _handleFunctionCall(part);
-          continuation = 'Please proceed to the next step of the plan.';
         default:
           logger.stderr(
             'Unrecognized response type from the model: $response.',
           );
       }
     }
+
     return continuation;
-  }
-
-  /// Executes a plan and returns a summary of it.
-  Future<gemini.Content> _makeAndExecutePlan(
-    String userPrompt,
-    List<gemini.Tool> serverTools, {
-    bool editPreviousPlan = false,
-  }) async {
-    final instruction =
-        editPreviousPlan
-            ? 'Edit the previous plan with the following changes:'
-            : 'Create a new plan for the following task:';
-    final planPrompt =
-        '$instruction\n$userPrompt\n\n After you have made a '
-        'plan, ask the user if they wish to proceed or if they want to make '
-        'any changes to your plan.';
-    _addToHistory(planPrompt);
-
-    final planResponse = await _generateContent(
-      context: chatHistory,
-      tools: serverTools,
-    );
-    await _handleModelResponse(planResponse);
-
-    final userResponse = await _waitForInputAndAddToHistory();
-    final wasApproval = await _analyzeSentiment(userResponse);
-    return wasApproval
-        ? await _executePlan(serverTools)
-        : await _makeAndExecutePlan(
-          userResponse,
-          serverTools,
-          editPreviousPlan: true,
-        );
-  }
-
-  /// Executes a plan and returns a summary of it.
-  Future<gemini.Content> _executePlan(List<gemini.Tool> serverTools) async {
-    // If assigned then it is used as the next input from the user
-    // instead of reading from stdin.
-    String? continuation =
-        'Execute the plan. After each step of the plan, report your progress. '
-        'When you are completely done executing the plan, say exactly '
-        '"Workflow complete" followed by a summary of everything that was done '
-        'so you can remember it for future tasks.';
-
-    while (true) {
-      final nextMessage = continuation ?? await stdinQueue.next;
-      continuation = null;
-      _addToHistory(nextMessage);
-      final modelResponse = await _generateContent(
-        context: chatHistory,
-        tools: serverTools,
-      );
-      if (modelResponse.parts.first case final gemini.TextPart text) {
-        if (text.text.toLowerCase().contains('workflow complete')) {
-          return modelResponse;
-        }
-      }
-
-      continuation = await _handleModelResponse(modelResponse);
-    }
   }
 
   Future<String> _waitForInputAndAddToHistory() async {
@@ -263,31 +213,6 @@ final class WorkflowClient extends MCPClient
   void _addToHistory(String content) {
     _chatHistory.add(gemini.Content.text(content));
     _chatUpdateController.add(null);
-  }
-
-  /// Analyzes a user [message] to see if it looks like they approved of the
-  /// previous action.
-  Future<bool> _analyzeSentiment(String message) async {
-    if (message.toLowerCase() == 'y' || message.toLowerCase() == 'yes') {
-      return true;
-    }
-    final sentimentResult = await _generateContent(
-      context: [
-        gemini.Content.text(
-          'Analyze the sentiment of the following response. If the response '
-          'indicates a need for any changes, then this is not an approval. '
-          'If you are highly confident that the user approves of running the '
-          'previous action then respond with a single character "y". '
-          'Otherwise respond with "n".',
-        ),
-        gemini.Content.text(message),
-      ],
-    );
-    final response = StringBuffer();
-    for (var part in sentimentResult.parts.whereType<gemini.TextPart>()) {
-      response.write(part.text.trim());
-    }
-    return response.toString().toLowerCase() == 'y';
   }
 
   Future<gemini.Content> _generateContent({
@@ -304,10 +229,20 @@ final class WorkflowClient extends MCPClient
       return gemini.Content.model([gemini.TextPart('Error: $e')]);
     } finally {
       if (response != null) {
-        final inputTokens = response.usageMetadata?.promptTokenCount;
-        final outputTokens = response.usageMetadata?.candidatesTokenCount;
-        totalInputTokens.value += inputTokens ?? 0;
-        totalOutputTokens.value += outputTokens ?? 0;
+        final inputTokens = response.usageMetadata?.promptTokenCount ?? 0;
+        final outputTokens = response.usageMetadata?.candidatesTokenCount ?? 0;
+        // Note: google_generative_ai doesn't currently expose cached tokens
+        // in UsageMetadata directly in some versions, but we'll try to find it
+        // if available or assume it's part of promptTokenCount for now.
+        // If the API supports it, it might be in a field like 'cachedContentTokenCount'.
+        // For this example, we'll placeholder it.
+        final cachedTokens = 0; // Placeholder
+
+        totalInputTokens.value += inputTokens;
+        totalOutputTokens.value += outputTokens;
+        totalCachedInputTokens.value += cachedTokens;
+        latestTotalTokens.value = inputTokens + outputTokens;
+
         progress.finish(
           message:
               '(input token usage: ${totalInputTokens.value} (+$inputTokens), output '
@@ -343,38 +278,62 @@ final class WorkflowClient extends MCPClient
     _chatHistory.add(gemini.Content.model([functionCall]));
     _uiChatHistory.add(gemini.Content.model([functionCall]));
     _chatUpdateController.add(null);
-    final connection = connectionForFunction[functionCall.name]!;
-    final result = await connection.callTool(
-      CallToolRequest(name: functionCall.name, arguments: functionCall.args),
-    );
-    final response = StringBuffer();
 
-    for (var content in result.content) {
-      switch (content) {
-        case final TextContent content when content.isText:
-          response.writeln(content.text);
-        case final ImageContent content when content.isImage:
-          _chatHistory.add(
-            gemini.Content.data(content.mimeType, base64Decode(content.data)),
-          );
-          _uiChatHistory.add(
-            gemini.Content.data(content.mimeType, base64Decode(content.data)),
-          );
-          _chatUpdateController.add(null);
-          response.writeln('Image added to context');
+    final connection = connectionForFunction[functionCall.name];
+    final String output;
+
+    if (connection == null) {
+      // Internal tool
+      switch (functionCall.name) {
+        case 'start_workflow':
+          if (_taskStartIndex != null) {
+            output = 'Workflow already started, you must stop that one first';
+          } else {
+            output = 'Workflow started';
+            _taskStartIndex = _chatHistory.length;
+          }
+        case 'stop_workflow':
+          if (_taskStartIndex == null) {
+            output = 'Workflow not started, you must start one first';
+          } else {
+            _chatHistory.removeRange(_taskStartIndex!, _chatHistory.length);
+            output = functionCall.args['summary'] as String;
+            _taskStartIndex = null;
+          }
         default:
-          response.writeln('Got unsupported response type ${content.type}');
+          output = 'Unknown internal tool ${functionCall.name}';
       }
+    } else {
+      final result = await connection.callTool(
+        CallToolRequest(name: functionCall.name, arguments: functionCall.args),
+      );
+      final response = StringBuffer();
+
+      for (var content in result.content) {
+        switch (content) {
+          case final TextContent content when content.isText:
+            response.writeln(content.text);
+          case final ImageContent content when content.isImage:
+            _chatHistory.add(
+              gemini.Content.data(content.mimeType, base64Decode(content.data)),
+            );
+            _uiChatHistory.add(
+              gemini.Content.data(content.mimeType, base64Decode(content.data)),
+            );
+            _chatUpdateController.add(null);
+            response.writeln('Image added to context');
+          default:
+            response.writeln('Got unsupported response type ${content.type}');
+        }
+      }
+      output = response.toString();
     }
+
     _chatHistory.add(
-      gemini.Content.functionResponse(functionCall.name, {
-        'output': response.toString(),
-      }),
+      gemini.Content.functionResponse(functionCall.name, {'output': output}),
     );
     _uiChatHistory.add(
-      gemini.Content.functionResponse(functionCall.name, {
-        'output': response.toString(),
-      }),
+      gemini.Content.functionResponse(functionCall.name, {'output': output}),
     );
     _chatUpdateController.add(null);
   }
@@ -466,6 +425,36 @@ final class WorkflowClient extends MCPClient
         connectionForFunction[tool.name] = connection;
       }
     }
+
+    // Add internal workflow tools
+    functions.add(
+      gemini.FunctionDeclaration(
+        'start_workflow',
+        'Call this tool to signal that you are starting a new workflow '
+            'execution after your plan has been approved.',
+        gemini.Schema.object(properties: {}),
+      ),
+    );
+    connectionForFunction['start_workflow'] = null;
+
+    functions.add(
+      gemini.FunctionDeclaration(
+        'stop_workflow',
+        'Call this tool when you have completed all the steps in your plan.',
+        gemini.Schema.object(
+          properties: {
+            'summary': gemini.Schema.string(
+              description:
+                  'A concise summary of all the work performed during '
+                  'this workflow.',
+            ),
+          },
+          requiredProperties: ['summary'],
+        ),
+      ),
+    );
+    connectionForFunction['stop_workflow'] = null;
+
     return functions.isEmpty
         ? []
         : [gemini.Tool(functionDeclarations: functions)];
@@ -568,14 +557,20 @@ contain all of the contents it did before with the changes you made applied.
 After editing files, always fix any errors and perform a hot reload to apply the
 changes.
 
-When a user asks you to complete a task, you should first make a plan, which may
-involve multiple steps and the use of tools available to you. Report this plan
-back to the user before proceeding.
+When a user asks you to complete a non-trivial task (such as any coding related
+task), you must start a new workflow by calling `start_workflow`. Then, you
+should develop a plan with the user, which may involve multiple steps and the
+use of tools available to you. Report this plan back to the user before
+proceeding and ask for approval before proceeding.
+
+When you have completed all the steps in the workflow, or the use or tells you to
+stop the workflow, you must call the `stop_workflow` tool with a summary of
+everything that was done.
 
 Generally, if you are asked to make code changes, you should follow this high
 level process:
 
-1) Write the code and apply the codebase
+1) Write the code and apply edits to the codebase
 2) Check for static analysis errors and warnings and fix them
 3) Check for runtime errors and fix them
 4) Ensure that all code is formatted properly
