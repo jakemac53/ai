@@ -333,7 +333,7 @@ final class WorkflowClient extends MCPClient
     _chatUpdateController.add(null);
 
     final connection = connectionForFunction[functionCall.name];
-    final String output;
+    var output = '';
 
     if (connection == null) {
       // Internal tool
@@ -352,6 +352,55 @@ final class WorkflowClient extends MCPClient
             _chatHistory.removeRange(_taskStartIndex!, _chatHistory.length);
             output = functionCall.args?.fields['summary']?.stringValue ?? '';
             _taskStartIndex = null;
+          }
+        case 'list_resources':
+          final resources = <Resource>[];
+          for (var connection in serverConnections) {
+            if (connection.serverCapabilities.resources != null) {
+              final result = await connection.listResources();
+              resources.addAll(result.resources);
+            }
+          }
+          output = jsonEncode([
+            for (var r in resources)
+              {
+                'uri': r.uri,
+                'name': r.name,
+                'description': r.description,
+                'mimeType': r.mimeType,
+              },
+          ]);
+        case 'read_resource':
+          final uri = functionCall.args?.fields['uri']?.stringValue;
+          if (uri == null) {
+            output = 'Error: uri argument is required';
+          } else {
+            ReadResourceResult? result;
+            for (var connection in serverConnections) {
+              if (connection.serverCapabilities.resources != null) {
+                try {
+                  result = await connection.readResource(
+                    ReadResourceRequest(uri: uri),
+                  );
+                  break;
+                } catch (_) {
+                  // Try next server
+                }
+              }
+            }
+            if (result == null) {
+              output = 'Error: Resource not found at $uri';
+            } else {
+              final sb = StringBuffer();
+              for (var content in result.contents) {
+                if (content is TextResourceContents) {
+                  sb.writeln(content.text);
+                } else if (content is BlobResourceContents) {
+                  sb.writeln('Binary data (mimeType: ${content.mimeType})');
+                }
+              }
+              output = sb.toString();
+            }
           }
         default:
           output = 'Unknown internal tool ${functionCall.name}';
@@ -523,6 +572,36 @@ final class WorkflowClient extends MCPClient
       ),
     );
     connectionForFunction['stop_workflow'] = null;
+
+    if (serverConnections.any((c) => c.serverCapabilities.resources != null)) {
+      functions.add(
+        gemini.FunctionDeclaration(
+          name: 'list_resources',
+          description:
+              'Lists all resources available from all connected MCP servers.',
+          parameters: gemini.Schema(type: gemini.Type.object, properties: {}),
+        ),
+      );
+      connectionForFunction['list_resources'] = null;
+
+      functions.add(
+        gemini.FunctionDeclaration(
+          name: 'read_resource',
+          description: 'Reads a resource from an MCP server by its URI.',
+          parameters: gemini.Schema(
+            type: gemini.Type.object,
+            properties: {
+              'uri': gemini.Schema(
+                type: gemini.Type.string,
+                description: 'The URI of the resource to read.',
+              ),
+            },
+            required: ['uri'],
+          ),
+        ),
+      );
+      connectionForFunction['read_resource'] = null;
+    }
 
     return functions.isEmpty
         ? []
