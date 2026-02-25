@@ -35,7 +35,7 @@ class _ClientAppState extends State<ClientApp> {
   @override
   Component build(BuildContext context) {
     return NoctermApp(
-      title: 'MCP Workflow Client',
+      title: 'Dash Client',
       child: Focusable(
         focused: true,
         onKeyEvent: (event) {
@@ -49,7 +49,7 @@ class _ClientAppState extends State<ClientApp> {
             _showSplash
                 ? Center(
                   child: AsciiText(
-                    'Workflow Client',
+                    'Dash Client',
                     font: AsciiFont.standard,
                     style: const TextStyle(color: Color(0xFF00E5FF)),
                   ),

@@ -1,6 +1,8 @@
 import 'dart:convert';
 
 import 'package:nocterm/nocterm.dart';
+import 'package:google_cloud_ai_generativelanguage_v1beta/generativelanguage.dart'
+    as gemini;
 
 import 'package:mcp_examples/workflow_client.dart';
 import 'package:mcp_examples/ui/draggable_scrollbar.dart';
@@ -15,8 +17,22 @@ class ChatView extends StatefulComponent {
   State<ChatView> createState() => _ChatViewState();
 }
 
+sealed class _ChatDisplayItem {}
+
+class _ContentItem extends _ChatDisplayItem {
+  final gemini.Content content;
+  _ContentItem(this.content);
+}
+
+class _FunctionGroupItem extends _ChatDisplayItem {
+  final gemini.FunctionCall call;
+  final gemini.FunctionResponse? response;
+  _FunctionGroupItem(this.call, this.response);
+}
+
 class _ChatViewState extends State<ChatView> {
   bool _shouldScrollToBottom = false;
+  final Set<int> _expandedFunctionGroups = {};
 
   @override
   void initState() {
@@ -35,6 +51,35 @@ class _ChatViewState extends State<ChatView> {
     }
   }
 
+  List<_ChatDisplayItem> _buildDisplayItems() {
+    final items = <_ChatDisplayItem>[];
+    final history = component.client.uiChatHistory;
+
+    for (var i = 0; i < history.length; i++) {
+      final content = history[i];
+      if (content.parts.length == 1 &&
+          content.parts.first.functionCall != null) {
+        final call = content.parts.first.functionCall!;
+        gemini.FunctionResponse? response;
+
+        // Look ahead for a matching response.
+        if (i + 1 < history.length) {
+          final nextContent = history[i + 1];
+          if (nextContent.parts.length == 1 &&
+              nextContent.parts.first.functionResponse != null &&
+              nextContent.parts.first.functionResponse!.name == call.name) {
+            response = nextContent.parts.first.functionResponse;
+            i++; // Skip the response item in the next iteration.
+          }
+        }
+        items.add(_FunctionGroupItem(call, response));
+      } else {
+        items.add(_ContentItem(content));
+      }
+    }
+    return items;
+  }
+
   @override
   Component build(BuildContext context) {
     if (_shouldScrollToBottom) {
@@ -45,6 +90,7 @@ class _ChatViewState extends State<ChatView> {
     }
 
     final theme = TuiTheme.of(context);
+    final displayItems = _buildDisplayItems();
 
     return Column(
       children: [
@@ -56,55 +102,128 @@ class _ChatViewState extends State<ChatView> {
             thumbColor: const Color(0xFF666666),
             child: ListView.builder(
               controller: component.controller,
-              itemCount: component.client.uiChatHistory.length,
+              itemCount: displayItems.length,
               itemBuilder: (context, index) {
-                final content = component.client.uiChatHistory[index];
-                final role = content.role == 'user' ? 'You' : 'Model';
-                final color =
-                    content.role == 'user'
-                        ? const Color(0xFF00E5FF)
-                        : const Color(0xFFFF00FF);
-                return Container(
-                  padding: const EdgeInsets.symmetric(vertical: 1),
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        '$role: ',
-                        style: TextStyle(
-                          color: color,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      Expanded(
-                        child: Text(
-                          content.parts
-                              .map((p) {
-                                if (p.text != null) {
-                                  return p.text;
-                                } else if (p.functionCall != null) {
-                                  return '[Function Call: ${p.functionCall!.name}'
-                                      '(${jsonEncode(p.functionCall!.args?.toJson())})]';
-                                } else if (p.functionResponse != null) {
-                                  return '[Function Response: ${p.functionResponse!.name} -> '
-                                      '${jsonEncode(p.functionResponse!.response?.toJson())}]';
-                                } else if (p.inlineData != null) {
-                                  return '[Data: ${p.inlineData!.mimeType}]';
-                                }
-                                return p.toString();
-                              })
-                              .join(''),
-                          softWrap: true,
-                        ),
-                      ),
-                    ],
-                  ),
-                );
+                final item = displayItems[index];
+                if (item is _ContentItem) {
+                  return _buildContentWidget(item.content);
+                } else if (item is _FunctionGroupItem) {
+                  return _buildFunctionGroupWidget(index, item);
+                }
+                return const SizedBox();
               },
             ),
           ),
         ),
       ],
+    );
+  }
+
+  Component _buildContentWidget(gemini.Content content) {
+    final role = content.role == 'user' ? 'You' : 'Model';
+    final color =
+        content.role == 'user'
+            ? const Color(0xFF00E5FF)
+            : const Color(0xFFFF00FF);
+    return Container(
+      padding: EdgeInsets.zero,
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            '$role: ',
+            style: TextStyle(color: color, fontWeight: FontWeight.bold),
+          ),
+          Expanded(
+            child: Text(
+              content.parts
+                  .map((p) {
+                    if (p.text != null) {
+                      return p.text;
+                    } else if (p.functionCall != null) {
+                      return '[Function Call: ${p.functionCall!.name}'
+                          '(${jsonEncode(p.functionCall!.args?.toJson())})]';
+                    } else if (p.functionResponse != null) {
+                      return '[Function Response: ${p.functionResponse!.name} -> '
+                          '${jsonEncode(p.functionResponse!.response?.toJson())}]';
+                    } else if (p.inlineData != null) {
+                      return '[Data: ${p.inlineData!.mimeType}]';
+                    }
+                    return p.toString();
+                  })
+                  .join(''),
+              softWrap: true,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Component _buildFunctionGroupWidget(int index, _FunctionGroupItem item) {
+    final isExpanded = _expandedFunctionGroups.contains(index);
+    final call = item.call;
+    final response = item.response;
+
+    return Container(
+      padding: EdgeInsets.zero,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          GestureDetector(
+            onTap: () {
+              setState(() {
+                if (isExpanded) {
+                  _expandedFunctionGroups.remove(index);
+                } else {
+                  _expandedFunctionGroups.add(index);
+                }
+              });
+            },
+            child: Row(
+              children: [
+                Text(
+                  isExpanded ? '▼ ' : '▶ ',
+                  style: const TextStyle(color: Color(0xFF888888)),
+                ),
+                Text(
+                  'Tool Call: ${call.name}',
+                  style: const TextStyle(
+                    color: Color(0xFFFFFF00),
+                    fontStyle: FontStyle.italic,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          if (isExpanded)
+            Padding(
+              padding: const EdgeInsets.only(left: 2),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Arguments: ${jsonEncode(call.args?.toJson())}',
+                    style: const TextStyle(color: Color(0xFFAAAAAA)),
+                  ),
+                  if (response != null)
+                    Text(
+                      'Response: ${jsonEncode(response.response?.toJson())}',
+                      style: const TextStyle(color: Color(0xFFAAAAAA)),
+                    )
+                  else
+                    const Text(
+                      'Response: (pending...)',
+                      style: TextStyle(
+                        color: Color(0xFF888888),
+                        fontStyle: FontStyle.italic,
+                      ),
+                    ),
+                ],
+              ),
+            ),
+        ],
+      ),
     );
   }
 }
