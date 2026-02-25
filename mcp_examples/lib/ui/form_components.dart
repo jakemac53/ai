@@ -126,6 +126,7 @@ Component buildFormField({
   required bool focused,
   required VoidCallback onSubmit,
   required bool Function(KeyboardEvent) onKeyEvent,
+  VoidCallback? onChanged,
 }) {
   String typeHint = state.schema?.type?.name ?? '';
   if (state.description != null && state.description!.isNotEmpty) {
@@ -156,6 +157,7 @@ Component buildFormField({
                   onChanged: (newValue) {
                     state.enumValue = newValue;
                     state.controller.text = newValue.toString();
+                    onChanged?.call();
                   },
                   onKeyEvent: onKeyEvent,
                 )

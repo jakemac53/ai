@@ -186,9 +186,13 @@ class _ElicitationOverlayState extends State<ElicitationOverlay> {
           state: state,
           focused: _focusedIndex == i,
           onSubmit: _submit,
+          onChanged: () => setState(() {}),
           onKeyEvent: (event) {
             if (event.logicalKey == LogicalKey.escape) {
               _cancel();
+              return true;
+            } else if (event.logicalKey == LogicalKey.enter) {
+              _submit();
               return true;
             } else if (event.logicalKey == LogicalKey.tab) {
               if (event.isShiftPressed) {
