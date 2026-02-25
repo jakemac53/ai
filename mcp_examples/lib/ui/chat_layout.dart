@@ -237,11 +237,8 @@ class _ChatLayoutState extends State<ChatLayout> {
       children: [
         if (_activeTabIndex == 0) _buildInputBox(),
         Container(
-          decoration: BoxDecoration(
-            color: const Color(0xFF1E1E1E),
-            border: BoxBorder(top: BorderSide(color: const Color(0xFF555555))),
-          ),
-          padding: const EdgeInsets.all(1),
+          decoration: const BoxDecoration(color: Color(0xFF1E1E1E)),
+          padding: const EdgeInsets.symmetric(horizontal: 1),
           child: Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
@@ -293,9 +290,12 @@ class _ChatLayoutState extends State<ChatLayout> {
     return Container(
       decoration: BoxDecoration(
         color: const Color(0xFF222222),
-        border: BoxBorder(top: BorderSide(color: const Color(0xFF555555))),
+        border: BoxBorder(
+          top: BorderSide(color: const Color(0xFF555555)),
+          bottom: BorderSide(color: const Color(0xFF555555)),
+        ),
       ),
-      padding: const EdgeInsets.symmetric(horizontal: 1, vertical: 1),
+      padding: const EdgeInsets.symmetric(horizontal: 1),
       child:
           component.client.isThinking.value
               ? const Center(
