@@ -39,10 +39,10 @@ base class MathQuizServer extends MCPServer
 
     // 1. Elicit Name
     final nameResult = await elicit(
-      ElicitRequest(
+      ElicitRequest.form(
         message: 'Welcome to the Math Quiz! Please enter your name:',
         requestedSchema: Schema.object(
-          properties: {'name': Schema.string(description: 'Your full name.')},
+          properties: {'name': Schema.string(title: 'Your full name')},
           required: ['name'],
         ),
       ),
@@ -53,17 +53,19 @@ base class MathQuizServer extends MCPServer
         content: [TextContent(text: 'Quiz cancelled before starting.')],
       );
     }
+    final name = nameResult.content!['name'] as String;
 
-    final name = (nameResult.content as Map<String, dynamic>)['name'] as String;
-
-    // 2. Question 1
-    maxScore++;
+    maxScore += 3;
     final q1Result = await elicit(
-      ElicitRequest(
-        message: 'Question 1: What is 5 + 7?',
+      ElicitRequest.form(
+        message: 'Addition questions',
         requestedSchema: Schema.object(
-          properties: {'answer': Schema.int()},
-          required: ['answer'],
+          properties: {
+            'a1': Schema.int(title: 'What is 5 + 7?'),
+            'a2': Schema.int(title: 'What is 10 + 15?'),
+            'a3': Schema.int(title: 'What is 115 + 31?'),
+          },
+          required: ['a1', 'a2', 'a3'],
         ),
       ),
     );
@@ -71,19 +73,28 @@ base class MathQuizServer extends MCPServer
     if (q1Result.action != ElicitationAction.accept) {
       return CallToolResult(content: [TextContent(text: 'Quiz cancelled.')]);
     }
-
-    if ((q1Result.content as Map<String, dynamic>)['answer'] == 12) {
+    final q1Answers = q1Result.content! as Map<String, dynamic>;
+    if (q1Answers['a1'] == 12) {
+      score++;
+    }
+    if (q1Answers['a2'] == 25) {
+      score++;
+    }
+    if (q1Answers['a3'] == 146) {
       score++;
     }
 
-    // 3. Question 2
-    maxScore++;
+    maxScore += 3;
     final q2Result = await elicit(
-      ElicitRequest(
-        message: 'Question 2: What is 12 * 12?',
+      ElicitRequest.form(
+        message: 'Multiplication questions',
         requestedSchema: Schema.object(
-          properties: {'answer': Schema.int()},
-          required: ['answer'],
+          properties: {
+            'a1': Schema.int(title: 'What is 3 * 2?'),
+            'a2': Schema.int(title: 'What is 10 * 15?'),
+            'a3': Schema.int(title: 'What is 115 * 31?'),
+          },
+          required: ['a1', 'a2', 'a3'],
         ),
       ),
     );
@@ -91,19 +102,26 @@ base class MathQuizServer extends MCPServer
     if (q2Result.action != ElicitationAction.accept) {
       return CallToolResult(content: [TextContent(text: 'Quiz cancelled.')]);
     }
-
-    if ((q2Result.content as Map<String, dynamic>)['answer'] == 144) {
+    final q2Answers = q2Result.content! as Map<String, dynamic>;
+    if (q2Answers['a1'] == 6) {
       score++;
     }
-
-    // 4. Question 3 (Multiple Choice)
+    if (q2Answers['a2'] == 150) {
+      score++;
+    }
+    if (q2Answers['a3'] == 3565) {
+      score++;
+    }
     maxScore++;
     final q3Result = await elicit(
-      ElicitRequest(
-        message: 'Question 3: Which of these is a prime number?',
+      ElicitRequest.form(
+        message: 'General questions',
         requestedSchema: Schema.object(
           properties: {
-            'answer': Schema.string(enumValues: ['4', '6', '7', '9']),
+            'answer': EnumSchema.untitledMultiSelect(
+              title: 'Which of these is a prime number?',
+              values: ['4', '7', '15', '23', '113', '121'],
+            ),
           },
           required: ['answer'],
         ),
@@ -114,7 +132,11 @@ base class MathQuizServer extends MCPServer
       return CallToolResult(content: [TextContent(text: 'Quiz cancelled.')]);
     }
 
-    if ((q3Result.content as Map<String, dynamic>)['answer'] == '7') {
+    final q3Answer = q3Result.content!['answer'] as List;
+    if (q3Answer.length == 3 &&
+        q3Answer.contains('7') &&
+        q3Answer.contains('23') &&
+        q3Answer.contains('113')) {
       score++;
     }
 

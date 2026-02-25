@@ -14,7 +14,7 @@ import 'package:http/http.dart' as http;
 import 'buffered_logger.dart';
 
 final class WorkflowClient extends MCPClient
-    with RootsSupport, ElicitationSupport {
+    with RootsSupport, ElicitationFormSupport {
   WorkflowClient(
     this.serverCommands, {
     required String geminiApiKey,
@@ -22,11 +22,10 @@ final class WorkflowClient extends MCPClient
     required this.logger,
     String? dtdUri,
     this.verbose = false,
-    String? persona,
+    this.persona,
     File? logFile,
   }) : modelName = model.startsWith('models/') ? model : 'models/$model',
        _client = auth.clientViaApiKey(geminiApiKey),
-       systemInstruction = systemInstructions(persona: persona),
        stdinQueue = StreamQueue(_inputController.stream),
        super(Implementation(name: 'Gemini workflow client', version: '0.1.0')) {
     api = gemini.GenerativeService(client: _client);
@@ -109,7 +108,24 @@ final class WorkflowClient extends MCPClient
   late final gemini.GenerativeService api;
   final http.Client _client;
   final String modelName;
-  final gemini.Content systemInstruction;
+  gemini.Content get systemInstruction {
+    final instructions = [
+      'You are a developer assistant for Dart and Flutter apps. You are an expert software developer.',
+      if (persona != null) '\n$persona\n',
+      ..._serverInstructions,
+      'You can help developers with writing code by generating Dart and Flutter code or making changes to their existing app. You can also help developers with debugging their code by connecting into the live state of their apps, helping them with all aspects of the software development lifecycle.',
+      'If a user asks about an error or a widget in the app, you should have several tools available to you to aid in debugging, so make sure to use those.',
+      'If a user asks for code that requires adding or removing a dependency, you have several tools available to you for managing pub dependencies.',
+      'If a user asks for code that requires writing to files, only edit the part of the file that is required. After you apply the edit, the file should contain all of the contents it did before with the changes you made applied. After editing files, always fix any errors and perform a hot reload to apply the changes.',
+      'When a user asks you to complete a non-trivial task (such as any coding related task), you must start a new workflow by calling `start_workflow`. Then, you should develop a plan with the user, which may involve multiple steps and the use of tools available to you. Report this plan back to the user before proceeding and ask for approval before proceeding.',
+    ];
+    return gemini.Content(
+      parts: [gemini.Part(text: instructions.join('\n\n'))],
+    );
+  }
+
+  final String? persona;
+  final List<String> _serverInstructions = [];
   final bool verbose;
 
   int? _taskStartIndex;
@@ -182,7 +198,10 @@ final class WorkflowClient extends MCPClient
   }
 
   @override
-  FutureOr<ElicitResult> handleElicitation(ElicitRequest request) async {
+  FutureOr<ElicitResult> handleElicitation(
+    ElicitRequest request,
+    ServerConnection connection,
+  ) async {
     // Expose the current elicitation request directly to the Nocterm UI.
     activeElicitation.value = request;
 
@@ -497,6 +516,9 @@ final class WorkflowClient extends MCPClient
         serverConnections.remove(connection);
       } else {
         connection.notifyInitialized(InitializedNotification());
+        if (result.instructions != null) {
+          _serverInstructions.add(result.instructions!);
+        }
       }
     }
   }

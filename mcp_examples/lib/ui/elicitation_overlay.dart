@@ -27,14 +27,16 @@ class _ElicitationOverlayState extends State<ElicitationOverlay> {
   void initState() {
     super.initState();
     // Initialize state for each property requested by the schema
-    final properties = component.request.requestedSchema.properties;
+    final properties = component.request.requestedSchema?.properties;
     if (properties != null) {
       for (final entry in properties.entries) {
         _fields[entry.key] = FieldState(
           name: entry.key,
           schema: entry.value,
           isRequired:
-              component.request.requestedSchema.required?.contains(entry.key) ??
+              component.request.requestedSchema?.required?.contains(
+                entry.key,
+              ) ??
               true,
         );
       }
@@ -53,10 +55,18 @@ class _ElicitationOverlayState extends State<ElicitationOverlay> {
       final state = entry.value;
 
       try {
-        final parsedValue = _parseStringValue(
-          state.controller.text,
-          state.schema?.type,
-        );
+        final enumSchema = state.schema as EnumSchema?;
+        final isEnum =
+            enumSchema != null &&
+            (enumSchema.isUntitledSingleSelect ||
+                enumSchema.isTitledSingleSelect ||
+                enumSchema.isUntitledMultiSelect ||
+                enumSchema.isTitledMultiSelect);
+
+        final parsedValue =
+            isEnum
+                ? state.enumValue
+                : _parseStringValue(state.controller.text, state.schema?.type);
         final errors = state.schema?.validate(parsedValue) ?? [];
 
         if (errors.isNotEmpty) {
