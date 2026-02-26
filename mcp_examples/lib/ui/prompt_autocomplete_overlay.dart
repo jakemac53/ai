@@ -14,22 +14,23 @@ class PromptAutocompleteOverlay extends StatelessComponent {
   @override
   Component build(BuildContext context) {
     if (prompts.isEmpty) return const SizedBox();
+    final theme = TuiTheme.of(context);
 
     return Container(
       decoration: BoxDecoration(
-        color: const Color(0xFF1E1E1E),
-        border: BoxBorder.all(color: const Color(0xFF00E5FF)),
+        color: theme.surface,
+        border: BoxBorder.all(color: theme.primary),
       ),
       padding: const EdgeInsets.all(1),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: [
-          const Text(
+          Text(
             ' Prompts ',
             style: TextStyle(
               fontWeight: FontWeight.bold,
-              color: Color(0xFF00E5FF),
+              color: theme.primary,
             ),
           ),
           const Divider(),
@@ -37,13 +38,13 @@ class PromptAutocompleteOverlay extends StatelessComponent {
             final prompt = prompts[index];
             final isSelected = index == selectedIndex;
             return Container(
-              color: isSelected ? const Color(0xFF333333) : null,
+              color: isSelected ? theme.outlineVariant : null,
               padding: const EdgeInsets.symmetric(horizontal: 1),
               child: Row(
                 children: [
                   Text(
                     isSelected ? '> ' : '  ',
-                    style: const TextStyle(color: Color(0xFF00E5FF)),
+                    style: TextStyle(color: theme.primary),
                   ),
                   Text(
                     prompt.name,
@@ -52,15 +53,15 @@ class PromptAutocompleteOverlay extends StatelessComponent {
                           isSelected ? FontWeight.bold : FontWeight.normal,
                       color:
                           isSelected
-                              ? const Color(0xFFFFFFFF)
-                              : const Color(0xFFAAAAAA),
+                              ? theme.onSurface
+                              : theme.outline,
                     ),
                   ),
                   if (prompt.description != null)
                     Expanded(
                       child: Text(
                         ' - ${prompt.description}',
-                        style: const TextStyle(color: Color(0xFF666666)),
+                        style: TextStyle(color: theme.outline),
                         overflow: TextOverflow.ellipsis,
                       ),
                     ),

@@ -77,10 +77,11 @@ class _PromptArgumentsOverlayState extends State<PromptArgumentsOverlay> {
 
   @override
   Component build(BuildContext context) {
+    final theme = TuiTheme.of(context);
     return Container(
       decoration: BoxDecoration(
-        color: const Color(0xFF1E1E1E),
-        border: BoxBorder.all(color: const Color(0xFF00E5FF)),
+        color: theme.surface,
+        border: BoxBorder.all(color: theme.primary),
       ),
       padding: const EdgeInsets.all(2),
       child: Column(
@@ -88,22 +89,22 @@ class _PromptArgumentsOverlayState extends State<PromptArgumentsOverlay> {
         children: [
           Text(
             'Prompt Arguments: ${component.prompt.name}',
-            style: const TextStyle(
+            style: TextStyle(
               fontWeight: FontWeight.bold,
-              color: Color(0xFF00E5FF),
+              color: theme.primary,
             ),
           ),
           if (component.prompt.description != null) ...[
             const SizedBox(height: 1),
-            Text(component.prompt.description!),
+            Text(component.prompt.description!, style: TextStyle(color: theme.onSurface)),
           ],
           const SizedBox(height: 1),
           const Divider(),
           const SizedBox(height: 1),
           if (_fields.isEmpty)
-            const Text('This prompt has no arguments.')
+            Text('This prompt has no arguments.', style: TextStyle(color: theme.onSurface))
           else
-            ..._buildFormFields(),
+            ..._buildFormFields(context),
           const Spacer(),
           const Divider(),
           Row(
@@ -115,7 +116,7 @@ class _PromptArgumentsOverlayState extends State<PromptArgumentsOverlay> {
               ),
               Text(
                 ' [Esc] Cancel ',
-                style: const TextStyle(color: Color(0xFF888888)),
+                style: TextStyle(color: theme.outline),
               ),
             ],
           ),
@@ -124,7 +125,7 @@ class _PromptArgumentsOverlayState extends State<PromptArgumentsOverlay> {
     );
   }
 
-  List<Component> _buildFormFields() {
+  List<Component> _buildFormFields(BuildContext context) {
     final fieldsComponents = <Component>[];
     int i = 0;
     for (final entry in _fields.entries) {
@@ -133,6 +134,7 @@ class _PromptArgumentsOverlayState extends State<PromptArgumentsOverlay> {
 
       fieldsComponents.add(
         buildFormField(
+          context: context,
           name: name,
           state: state,
           focused: _focusedIndex == i,

@@ -13,8 +13,16 @@ import 'package:mcp_examples/ui/prompt_arguments_overlay.dart';
 class ChatLayout extends StatefulComponent {
   final WorkflowClient client;
   final BufferedLogger logger;
+  final bool isDark;
+  final VoidCallback onThemeToggle;
 
-  const ChatLayout({super.key, required this.client, required this.logger});
+  const ChatLayout({
+    super.key,
+    required this.client,
+    required this.logger,
+    required this.isDark,
+    required this.onThemeToggle,
+  });
 
   @override
   State<ChatLayout> createState() => _ChatLayoutState();
@@ -113,6 +121,7 @@ class _ChatLayoutState extends State<ChatLayout> {
   Component build(BuildContext context) {
     final unreadCount = component.logger.unreadCount.value;
     final logTabTitle = 'Logs${unreadCount > 0 ? ' ($unreadCount)' : ''}';
+    final theme = TuiTheme.of(context);
 
     return Column(
       children: [
@@ -124,6 +133,20 @@ class _ChatLayoutState extends State<ChatLayout> {
             _buildTab(logTabTitle, 1),
             const SizedBox(width: 2),
             _buildTab('MCP Servers', 2),
+            const Spacer(),
+            GestureDetector(
+              onTap: component.onThemeToggle,
+              child: Container(
+                decoration: BoxDecoration(
+                  border: BoxBorder.all(color: theme.outline),
+                ),
+                padding: const EdgeInsets.symmetric(horizontal: 1),
+                child: Text(
+                  component.isDark ? '☀️ Light' : '🌙 Dark',
+                  style: TextStyle(color: theme.primary),
+                ),
+              ),
+            ),
           ],
         ),
         const Divider(),
@@ -196,6 +219,7 @@ class _ChatLayoutState extends State<ChatLayout> {
 
   Component _buildTab(String title, int index) {
     final isActive = _activeTabIndex == index;
+    final theme = TuiTheme.of(context);
     return GestureDetector(
       onTap: () {
         setState(() {
@@ -207,16 +231,16 @@ class _ChatLayoutState extends State<ChatLayout> {
       },
       child: Container(
         decoration: BoxDecoration(
-          color: isActive ? const Color(0xFF333333) : null,
+          color: isActive ? theme.outlineVariant : null,
           border: BoxBorder.all(
-            color: isActive ? const Color(0xFF00E5FF) : const Color(0xFF555555),
+            color: isActive ? theme.primary : theme.outline,
           ),
         ),
         padding: const EdgeInsets.symmetric(horizontal: 1, vertical: 0),
         child: Text(
           title,
           style: TextStyle(
-            color: isActive ? const Color(0xFF00E5FF) : const Color(0xFFAAAAAA),
+            color: isActive ? theme.primary : theme.onSurface,
             fontWeight: isActive ? FontWeight.bold : FontWeight.normal,
           ),
         ),
@@ -229,6 +253,7 @@ class _ChatLayoutState extends State<ChatLayout> {
     final cachedTokens = component.client.totalCachedInputTokens.value;
     final outputTokens = component.client.totalOutputTokens.value;
     final latestTotal = component.client.latestTotalTokens.value;
+    final theme = TuiTheme.of(context);
 
     const contextLimit = 1000000;
     final contextUsage = latestTotal / contextLimit;
@@ -237,14 +262,14 @@ class _ChatLayoutState extends State<ChatLayout> {
       children: [
         if (_activeTabIndex == 0) _buildInputBox(),
         Container(
-          decoration: const BoxDecoration(color: Color(0xFF1E1E1E)),
+          decoration: BoxDecoration(color: theme.surface),
           padding: const EdgeInsets.symmetric(horizontal: 1),
           child: Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Text(
                 ' Tokens: ↑ $inputTokens ($cachedTokens cached) | ↓ $outputTokens ',
-                style: const TextStyle(color: Color(0xFF888888)),
+                style: TextStyle(color: theme.onSurface),
               ),
               Row(
                 children: [
@@ -255,7 +280,7 @@ class _ChatLayoutState extends State<ChatLayout> {
                     ),
                   Text(
                     ' Context: ${(contextUsage * 100).toStringAsFixed(1)}% ',
-                    style: const TextStyle(color: Color(0xFF888888)),
+                    style: TextStyle(color: theme.onSurface),
                   ),
                   _buildProgressBar(contextUsage, 20),
                 ],
@@ -268,40 +293,42 @@ class _ChatLayoutState extends State<ChatLayout> {
   }
 
   Component _buildProgressBar(double fraction, int totalWidth) {
+    final theme = TuiTheme.of(context);
     final filledWidth = (fraction * totalWidth).round().clamp(0, totalWidth);
     final emptyWidth = totalWidth - filledWidth;
     return Row(
       children: [
-        const Text('[', style: TextStyle(color: Color(0xFF555555))),
+        Text('[', style: TextStyle(color: theme.outline)),
         Text(
           '█' * filledWidth,
-          style: const TextStyle(color: Color(0xFF00E5FF)),
+          style: TextStyle(color: theme.primary),
         ),
         Text(
           ' ' * emptyWidth,
-          style: const TextStyle(color: Color(0xFF555555)),
+          style: TextStyle(color: theme.outline),
         ),
-        const Text(']', style: TextStyle(color: Color(0xFF555555))),
+        Text(']', style: TextStyle(color: theme.outline)),
       ],
     );
   }
 
   Component _buildInputBox() {
+    final theme = TuiTheme.of(context);
     return Container(
       decoration: BoxDecoration(
-        color: const Color(0xFF222222),
+        color: theme.surface,
         border: BoxBorder(
-          top: BorderSide(color: const Color(0xFF555555)),
-          bottom: BorderSide(color: const Color(0xFF555555)),
+          top: BorderSide(color: theme.outline),
+          bottom: BorderSide(color: theme.outline),
         ),
       ),
       padding: const EdgeInsets.symmetric(horizontal: 1),
       child:
           component.client.isThinking.value
-              ? const Center(
+              ? Center(
                 child: Text(
                   'Please wait for the model to finish...',
-                  style: TextStyle(color: Color(0xFFAAAAAA)),
+                  style: TextStyle(color: theme.onSurface),
                 ),
               )
               : TextField(

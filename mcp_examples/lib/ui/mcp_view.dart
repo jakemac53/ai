@@ -66,12 +66,23 @@ class _McpViewState extends State<McpView> {
 
   @override
   Component build(BuildContext context) {
+    final theme = TuiTheme.of(context);
     if (_isLoading) {
-      return const Center(child: Text('Loading MCP server details...'));
+      return Center(
+        child: Text(
+          'Loading MCP server details...',
+          style: TextStyle(color: theme.onSurface),
+        ),
+      );
     }
 
     if (component.client.serverConnections.isEmpty) {
-      return const Center(child: Text('No active MCP server connections.'));
+      return Center(
+        child: Text(
+          'No active MCP server connections.',
+          style: TextStyle(color: theme.onSurface),
+        ),
+      );
     }
 
     final children = <Component>[];
@@ -95,10 +106,7 @@ class _McpViewState extends State<McpView> {
             padding: const EdgeInsets.only(bottom: 1),
             child: Text(
               '${isServerExpanded ? "▼" : "▶"} $serverName (v$version)',
-              style: const TextStyle(
-                fontWeight: FontWeight.bold,
-                color: Color(0xFF00E5FF),
-              ),
+              style: TextStyle(fontWeight: FontWeight.bold, color: theme.primary),
             ),
           ),
         ),
@@ -125,7 +133,7 @@ class _McpViewState extends State<McpView> {
             },
             child: Text(
               '  ${isSectionExpanded ? "▼" : "▶"} Tools (${tools.length})',
-              style: const TextStyle(color: Color(0xFFFFD700)),
+              style: TextStyle(color: theme.warning),
             ),
           ),
         );
@@ -135,16 +143,16 @@ class _McpViewState extends State<McpView> {
             children.add(
               Text(
                 '    - ${tool.name}: ${tool.description ?? "No description"}',
-                style: const TextStyle(color: Color(0xFFAAAAAA)),
+                style: TextStyle(color: theme.outline),
               ),
             );
           }
         }
       } else {
         children.add(
-          const Text(
+          Text(
             '  ▶ Tools: 0',
-            style: TextStyle(color: Color(0xFF888888)),
+            style: TextStyle(color: theme.outline),
           ),
         );
       }
@@ -168,7 +176,7 @@ class _McpViewState extends State<McpView> {
             },
             child: Text(
               '  ${isSectionExpanded ? "▼" : "▶"} Resources (${resources.length})',
-              style: const TextStyle(color: Color(0xFFFFD700)),
+              style: TextStyle(color: theme.warning),
             ),
           ),
         );
@@ -178,16 +186,16 @@ class _McpViewState extends State<McpView> {
             children.add(
               Text(
                 '    - ${resource.name}: ${resource.description ?? "No description"}',
-                style: const TextStyle(color: Color(0xFFAAAAAA)),
+                style: TextStyle(color: theme.outline),
               ),
             );
           }
         }
       } else {
         children.add(
-          const Text(
+          Text(
             '  ▶ Resources: 0',
-            style: TextStyle(color: Color(0xFF888888)),
+            style: TextStyle(color: theme.outline),
           ),
         );
       }
@@ -211,7 +219,7 @@ class _McpViewState extends State<McpView> {
             },
             child: Text(
               '  ${isSectionExpanded ? "▼" : "▶"} Prompts (${prompts.length})',
-              style: const TextStyle(color: Color(0xFFFFD700)),
+              style: TextStyle(color: theme.warning),
             ),
           ),
         );
@@ -221,16 +229,16 @@ class _McpViewState extends State<McpView> {
             children.add(
               Text(
                 '    - ${prompt.name}: ${prompt.description}',
-                style: const TextStyle(color: Color(0xFFAAAAAA)),
+                style: TextStyle(color: theme.outline),
               ),
             );
           }
         }
       } else {
         children.add(
-          const Text(
+          Text(
             '  ▶ Prompts: 0',
-            style: TextStyle(color: Color(0xFF888888)),
+            style: TextStyle(color: theme.outline),
           ),
         );
       }

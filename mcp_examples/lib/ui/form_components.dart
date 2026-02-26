@@ -58,6 +58,7 @@ class EnumSelector extends StatefulComponent {
 class _EnumSelectorState extends State<EnumSelector> {
   @override
   Component build(BuildContext context) {
+    final theme = TuiTheme.of(context);
     List<Component> optionComponents = [];
     for (int i = 0; i < component.options.length; i++) {
       final option = component.options[i];
@@ -90,8 +91,8 @@ class _EnumSelectorState extends State<EnumSelector> {
               style: TextStyle(
                 color:
                     isSelected
-                        ? const Color(0xFF00FF00)
-                        : const Color(0xFF888888),
+                        ? const Color(0xFF00FF00) // Keep standard green for selected
+                        : theme.outline,
               ),
             ),
             Text(
@@ -99,8 +100,8 @@ class _EnumSelectorState extends State<EnumSelector> {
               style: TextStyle(
                 color:
                     isFocused
-                        ? const Color(0xFFFFFFFF)
-                        : const Color(0xFFAAAAAA),
+                        ? theme.onSurface
+                        : theme.outline,
               ),
             ),
           ],
@@ -140,8 +141,8 @@ class _EnumSelectorState extends State<EnumSelector> {
           border: BoxBorder.all(
             color:
                 component.focused
-                    ? const Color(0xFFFFFFFF)
-                    : const Color(0xFF555555),
+                    ? theme.primary
+                    : theme.outline,
           ),
         ),
         child: Column(
@@ -196,6 +197,7 @@ class _EnumSelectorState extends State<EnumSelector> {
 }
 
 Component buildFormField({
+  required BuildContext context,
   required String name,
   required FieldState state,
   required bool focused,
@@ -203,6 +205,7 @@ Component buildFormField({
   required bool Function(KeyboardEvent) onKeyEvent,
   VoidCallback? onChanged,
 }) {
+  final theme = TuiTheme.of(context);
   String typeHint = state.schema?.type?.name ?? '';
   if (state.description != null && state.description!.isNotEmpty) {
     typeHint = state.description!;
@@ -215,7 +218,7 @@ Component buildFormField({
       children: [
         Text(
           (state.schema?.title ?? name).padRight(15),
-          style: const TextStyle(color: Color(0xFF00E5FF)),
+          style: TextStyle(color: theme.primary),
         ),
         Expanded(
           child: Column(
@@ -255,8 +258,8 @@ Component buildFormField({
                       border: BoxBorder.all(
                         color:
                             state.error != null
-                                ? const Color(0xFFFF0000)
-                                : const Color(0xFF555555),
+                                ? theme.error
+                                : theme.outline,
                       ),
                       contentPadding: const EdgeInsets.symmetric(horizontal: 1),
                     ),
@@ -266,7 +269,7 @@ Component buildFormField({
                   padding: const EdgeInsets.only(top: 1),
                   child: Text(
                     '  * ${state.error}',
-                    style: const TextStyle(color: Color(0xFFFF0000)),
+                    style: TextStyle(color: theme.error),
                   ),
                 ),
             ],

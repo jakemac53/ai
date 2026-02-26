@@ -133,10 +133,11 @@ class _ElicitationOverlayState extends State<ElicitationOverlay> {
 
   @override
   Component build(BuildContext context) {
+    final theme = TuiTheme.of(context);
     return Container(
       decoration: BoxDecoration(
-        color: const Color(0xFF1E1E1E),
-        border: BoxBorder.all(color: const Color(0xFFFFD700)),
+        color: theme.surface,
+        border: BoxBorder.all(color: theme.warning),
       ),
       padding: const EdgeInsets.all(2),
       child: Column(
@@ -144,17 +145,14 @@ class _ElicitationOverlayState extends State<ElicitationOverlay> {
         children: [
           Text(
             '⚠️ Server Needs Information',
-            style: const TextStyle(
-              fontWeight: FontWeight.bold,
-              color: Color(0xFFFFD700),
-            ),
+            style: TextStyle(fontWeight: FontWeight.bold, color: theme.warning),
           ),
           const SizedBox(height: 1),
-          Text(component.request.message),
+          Text(component.request.message, style: TextStyle(color: theme.onSurface)),
           const SizedBox(height: 1),
           const Divider(),
           const SizedBox(height: 1),
-          ..._buildFormFields(),
+          ..._buildFormFields(context),
           const Spacer(),
           const Divider(),
           Row(
@@ -168,7 +166,7 @@ class _ElicitationOverlayState extends State<ElicitationOverlay> {
                 children: [
                   Text(
                     ' [Esc] Cancel ',
-                    style: const TextStyle(color: Color(0xFF888888)),
+                    style: TextStyle(color: theme.outline),
                   ),
                   Text(
                     ' [Tab] Decline ',
@@ -183,7 +181,7 @@ class _ElicitationOverlayState extends State<ElicitationOverlay> {
     );
   }
 
-  List<Component> _buildFormFields() {
+  List<Component> _buildFormFields(BuildContext context) {
     final fieldsComponents = <Component>[];
     int i = 0;
     for (final entry in _fields.entries) {
@@ -192,6 +190,7 @@ class _ElicitationOverlayState extends State<ElicitationOverlay> {
 
       fieldsComponents.add(
         buildFormField(
+          context: context,
           name: name,
           state: state,
           focused: _focusedIndex == i,

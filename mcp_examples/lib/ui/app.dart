@@ -16,6 +16,7 @@ class ClientApp extends StatefulComponent {
 
 class _ClientAppState extends State<ClientApp> {
   bool _showSplash = true;
+  bool _isDark = true;
 
   @override
   void initState() {
@@ -32,10 +33,18 @@ class _ClientAppState extends State<ClientApp> {
     }
   }
 
+  void _toggleTheme() {
+    setState(() {
+      _isDark = !_isDark;
+    });
+  }
+
   @override
   Component build(BuildContext context) {
+    final theme = _isDark ? TuiThemeData.dark : TuiThemeData.light;
     return NoctermApp(
       title: 'Dash Client',
+      theme: theme,
       child: Focusable(
         focused: true,
         onKeyEvent: (event) {
@@ -51,12 +60,14 @@ class _ClientAppState extends State<ClientApp> {
                   child: AsciiText(
                     'Dash Client',
                     font: AsciiFont.standard,
-                    style: const TextStyle(color: Color(0xFF00E5FF)),
+                    style: TextStyle(color: theme.primary),
                   ),
                 )
                 : ChatLayout(
                   client: component.client,
                   logger: component.logger,
+                  isDark: _isDark,
+                  onThemeToggle: _toggleTheme,
                 ),
       ),
     );

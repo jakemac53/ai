@@ -99,16 +99,16 @@ class _ChatViewState extends State<ChatView> {
             controller: component.controller,
             thumbVisibility: true,
             trackColor: theme.surface,
-            thumbColor: const Color(0xFF666666),
+            thumbColor: theme.outline,
             child: ListView.builder(
               controller: component.controller,
               itemCount: displayItems.length,
               itemBuilder: (context, index) {
                 final item = displayItems[index];
                 if (item is _ContentItem) {
-                  return _buildContentWidget(item.content);
+                  return _buildContentWidget(context, item.content);
                 } else if (item is _FunctionGroupItem) {
-                  return _buildFunctionGroupWidget(index, item);
+                  return _buildFunctionGroupWidget(context, index, item);
                 }
                 return const SizedBox();
               },
@@ -119,12 +119,13 @@ class _ChatViewState extends State<ChatView> {
     );
   }
 
-  Component _buildContentWidget(gemini.Content content) {
+  Component _buildContentWidget(BuildContext context, gemini.Content content) {
+    final theme = TuiTheme.of(context);
     final role = content.role == 'user' ? 'You' : 'Model';
     final color =
         content.role == 'user'
-            ? const Color(0xFF00E5FF)
-            : const Color(0xFFFF00FF);
+            ? theme.primary
+            : theme.secondary;
     return Container(
       padding: EdgeInsets.zero,
       child: Row(
@@ -153,6 +154,7 @@ class _ChatViewState extends State<ChatView> {
                   })
                   .join(''),
               softWrap: true,
+              style: TextStyle(color: theme.onSurface),
             ),
           ),
         ],
@@ -160,7 +162,8 @@ class _ChatViewState extends State<ChatView> {
     );
   }
 
-  Component _buildFunctionGroupWidget(int index, _FunctionGroupItem item) {
+  Component _buildFunctionGroupWidget(BuildContext context, int index, _FunctionGroupItem item) {
+    final theme = TuiTheme.of(context);
     final isExpanded = _expandedFunctionGroups.contains(index);
     final call = item.call;
     final response = item.response;
@@ -184,12 +187,12 @@ class _ChatViewState extends State<ChatView> {
               children: [
                 Text(
                   isExpanded ? '▼ ' : '▶ ',
-                  style: const TextStyle(color: Color(0xFF888888)),
+                  style: TextStyle(color: theme.outline),
                 ),
                 Text(
                   'Tool Call: ${call.name}',
-                  style: const TextStyle(
-                    color: Color(0xFFFFFF00),
+                  style: TextStyle(
+                    color: theme.warning,
                     fontStyle: FontStyle.italic,
                   ),
                 ),
@@ -204,18 +207,18 @@ class _ChatViewState extends State<ChatView> {
                 children: [
                   Text(
                     'Arguments: ${jsonEncode(call.args?.toJson())}',
-                    style: const TextStyle(color: Color(0xFFAAAAAA)),
+                    style: TextStyle(color: theme.outline),
                   ),
                   if (response != null)
                     Text(
                       'Response: ${jsonEncode(response.response?.toJson())}',
-                      style: const TextStyle(color: Color(0xFFAAAAAA)),
+                      style: TextStyle(color: theme.outline),
                     )
                   else
-                    const Text(
+                    Text(
                       'Response: (pending...)',
                       style: TextStyle(
-                        color: Color(0xFF888888),
+                        color: theme.outline,
                         fontStyle: FontStyle.italic,
                       ),
                     ),
