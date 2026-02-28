@@ -198,25 +198,45 @@ class _ChatViewState extends State<ChatView> {
             style: TextStyle(color: color, fontWeight: FontWeight.bold),
           ),
           Expanded(
-            child: Text(
-              content.parts
-                  .map((p) {
-                    if (p.text != null) {
-                      return p.text;
-                    } else if (p.functionCall != null) {
-                      return '[Function Call: ${p.functionCall!.name}'
-                          '(${jsonEncode(p.functionCall!.args?.toJson())})]';
-                    } else if (p.functionResponse != null) {
-                      return '[Function Response: ${p.functionResponse!.name} -> '
-                          '${jsonEncode(p.functionResponse!.response?.toJson())}]';
-                    } else if (p.inlineData != null) {
-                      return '[Data: ${p.inlineData!.mimeType}]';
-                    }
-                    return p.toString();
-                  })
-                  .join(''),
-              softWrap: true,
-              style: TextStyle(color: theme.onSurface),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (isModel) ...[
+                  for (final thoughtPart in content.parts.where((p) => p.thought))
+                    Container(
+                      padding: const EdgeInsets.symmetric(vertical: 0),
+                      child: Text(
+                        'Thought: ${thoughtPart.text ?? ''}',
+                        softWrap: true,
+                        style: TextStyle(
+                          color: theme.outline,
+                          fontStyle: FontStyle.italic,
+                        ),
+                      ),
+                    ),
+                ],
+                Text(
+                  content.parts
+                      .where((p) => !p.thought)
+                      .map((p) {
+                        if (p.text != null) {
+                          return p.text;
+                        } else if (p.functionCall != null) {
+                          return '[Function Call: ${p.functionCall!.name}'
+                              '(${jsonEncode(p.functionCall!.args?.toJson())})]';
+                        } else if (p.functionResponse != null) {
+                          return '[Function Response: ${p.functionResponse!.name} -> '
+                              '${jsonEncode(p.functionResponse!.response?.toJson())}]';
+                        } else if (p.inlineData != null) {
+                          return '[Data: ${p.inlineData!.mimeType}]';
+                        }
+                        return p.toString();
+                      })
+                      .join(''),
+                  softWrap: true,
+                  style: TextStyle(color: theme.onSurface),
+                ),
+              ],
             ),
           ),
           if (isStreaming) ...[

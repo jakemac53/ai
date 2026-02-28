@@ -90,8 +90,12 @@ final class WorkflowClient extends MCPClient
   final ValueNotifier<int> totalOutputTokens = ValueNotifier(0);
   final ValueNotifier<int> totalCachedInputTokens = ValueNotifier(0);
   final ValueNotifier<int> latestTotalTokens = ValueNotifier(0);
+  final ValueNotifier<int> totalThoughtsTokens = ValueNotifier(0);
   final ValueNotifier<bool> isThinking = ValueNotifier(false);
   final ValueNotifier<bool> isStreaming = ValueNotifier(false);
+
+  final ValueNotifier<bool> thinkingEnabled = ValueNotifier(false);
+  final ValueNotifier<int> thinkingBudget = ValueNotifier(1024);
   final StreamQueue<String> stdinQueue;
   final List<String> serverCommands;
   final List<ServerConnection> serverConnections = [];
@@ -360,6 +364,15 @@ final class WorkflowClient extends MCPClient
           contents: context,
           tools: tools ?? [],
           systemInstruction: systemInstruction,
+          generationConfig: gemini.GenerationConfig(
+            thinkingConfig:
+                thinkingEnabled.value
+                    ? gemini.ThinkingConfig(
+                      includeThoughts: true,
+                      thinkingBudget: thinkingBudget.value,
+                    )
+                    : null,
+          ),
         ),
       );
 
@@ -370,11 +383,14 @@ final class WorkflowClient extends MCPClient
 
         for (final part in content.parts) {
           if (part.text != null) {
-            // Append text to the last part if it was also text, or add new part
+            // Append text to the last part if it was also text and same thought status
             if (accumulatedParts.isNotEmpty &&
-                accumulatedParts.last.text != null) {
+                accumulatedParts.last.text != null &&
+                accumulatedParts.last.thought == part.thought) {
               accumulatedParts.last = gemini.Part(
                 text: accumulatedParts.last.text! + part.text!,
+                thought: part.thought,
+                thoughtSignature: part.thoughtSignature,
               );
             } else {
               accumulatedParts.add(part);
@@ -415,16 +431,18 @@ final class WorkflowClient extends MCPClient
           final inputTokens = usage.promptTokenCount;
           final outputTokens = usage.candidatesTokenCount;
           final cachedTokens = usage.cachedContentTokenCount;
+          final thoughtsTokens = usage.thoughtsTokenCount;
 
           totalInputTokens.value += inputTokens;
           totalOutputTokens.value += outputTokens;
           totalCachedInputTokens.value += cachedTokens;
-          latestTotalTokens.value = inputTokens + outputTokens;
+          totalThoughtsTokens.value += thoughtsTokens;
+          latestTotalTokens.value = inputTokens + outputTokens + thoughtsTokens;
 
           progress.finish(
             message:
                 '(input token usage: ${totalInputTokens.value} (+$inputTokens), output '
-                'token usage: ${totalOutputTokens.value} (+$outputTokens))',
+                'token usage: ${totalOutputTokens.value} (+$outputTokens), thoughts: ${totalThoughtsTokens.value} (+$thoughtsTokens))',
             showTiming: true,
           );
         } else {

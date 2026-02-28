@@ -9,6 +9,7 @@ import 'package:mcp_examples/ui/elicitation_overlay.dart';
 import 'package:mcp_examples/ui/prompt_autocomplete_overlay.dart';
 import 'package:mcp_examples/ui/prompt_arguments_overlay.dart';
 import 'package:mcp_examples/ui/resource_autocomplete_overlay.dart';
+import 'package:mcp_examples/ui/settings_view.dart';
 import 'package:google_cloud_ai_generativelanguage_v1beta/generativelanguage.dart'
     as gemini;
 
@@ -64,6 +65,8 @@ class _ChatLayoutState extends State<ChatLayout> {
     component.client.latestTotalTokens.addListener(_onTokensChanged);
     component.client.activeElicitation.addListener(_onElicitationChanged);
     component.client.activePromptElicitation.addListener(_onElicitationChanged);
+    component.client.thinkingEnabled.addListener(_onSettingsChanged);
+    component.client.thinkingBudget.addListener(_onSettingsChanged);
 
     _inputController.addListener(_onInputChanged);
   }
@@ -81,6 +84,8 @@ class _ChatLayoutState extends State<ChatLayout> {
     component.client.activePromptElicitation.removeListener(
       _onElicitationChanged,
     );
+    component.client.thinkingEnabled.removeListener(_onSettingsChanged);
+    component.client.thinkingBudget.removeListener(_onSettingsChanged);
     super.dispose();
   }
 
@@ -156,6 +161,10 @@ class _ChatLayoutState extends State<ChatLayout> {
     if (mounted) setState(() {});
   }
 
+  void _onSettingsChanged() {
+    if (mounted) setState(() {});
+  }
+
   List<Prompt> get _filteredPrompts {
     final allPrompts = component.client.availablePrompts.value;
     if (_promptQuery.isEmpty) return allPrompts;
@@ -190,6 +199,8 @@ class _ChatLayoutState extends State<ChatLayout> {
               _buildTab(logTabTitle, 1),
               const SizedBox(width: 2),
               _buildTab('MCP Servers', 2),
+              const SizedBox(width: 2),
+              _buildTab('Settings', 3),
               const Spacer(),
               GestureDetector(
                 onTap: component.onThemeToggle,
@@ -280,6 +291,8 @@ class _ChatLayoutState extends State<ChatLayout> {
         );
       case 2:
         return McpView(client: component.client);
+      case 3:
+        return SettingsView(client: component.client);
       default:
         return const SizedBox();
     }
