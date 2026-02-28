@@ -104,7 +104,7 @@ final class WorkflowClient extends MCPClient
   final ValueNotifier<bool> isThinking = ValueNotifier(false);
   final ValueNotifier<bool> isStreaming = ValueNotifier(false);
 
-  final ValueNotifier<bool> showThoughts = ValueNotifier(false);
+  final ValueNotifier<bool> showThoughts = ValueNotifier(true);
   final StreamQueue<String> stdinQueue;
   final List<String> serverCommands;
   final List<ServerConnection> serverConnections = [];
