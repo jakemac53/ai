@@ -21,6 +21,14 @@ import 'skills.dart';
 
 final class WorkflowClient extends MCPClient
     with RootsSupport, ElicitationFormSupport {
+  static const List<String> allowedGeminiModels = [
+    'gemini-3-flash-preview',
+    'gemini-3-pro-preview',
+    'gemini-3.1-pro-preview',
+    'gemini-2.5-pro',
+    'gemini-2.5-flash',
+  ];
+
   WorkflowClient(
     this.serverCommands, {
     required String geminiApiKey,

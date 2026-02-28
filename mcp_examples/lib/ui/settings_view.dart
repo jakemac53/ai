@@ -43,11 +43,10 @@ class SettingsView extends StatelessComponent {
         const SizedBox(height: 1),
         Row(
           children: [
-            _buildModelButton(context, 'gemini-2.0-flash'),
-            const SizedBox(width: 1),
-            _buildModelButton(context, 'gemini-2.0-pro-exp-02-05'),
-            const SizedBox(width: 1),
-            _buildModelButton(context, 'gemini-2.0-flash-thinking-exp-01-21'),
+            for (final model in WorkflowClient.allowedGeminiModels) ...[
+              _buildModelButton(context, model),
+              const SizedBox(width: 1),
+            ],
           ],
         ),
       ],
