@@ -289,7 +289,9 @@ final class WorkflowClient extends MCPClient
     String? continuation;
     for (var part in response.parts) {
       if (part.text != null) {
-        _chatToUser(part.text!);
+        if (addToHistory) {
+          _chatToUser(part.text!);
+        }
         continuation = null;
       } else if (part.functionCall != null) {
         final functionCall = part.functionCall!;
@@ -298,7 +300,7 @@ final class WorkflowClient extends MCPClient
         } else {
           continuation = 'Please proceed to the next step of the plan.';
         }
-        await handleFunctionCall(functionCall);
+        await handleFunctionCall(functionCall, addToHistory: addToHistory);
       } else {
         logger.stderr('Unrecognized response type from the model: $response.');
       }
@@ -332,10 +334,24 @@ final class WorkflowClient extends MCPClient
     required List<gemini.Content> context,
     List<gemini.Tool>? tools,
   }) async {
-    isThinking.value = true;
     final progress = logger.progress('thinking');
     gemini.GenerateContentResponse? lastResponse;
     final accumulatedParts = <gemini.Part>[];
+
+    isThinking.value = false;
+    isStreaming.value = true;
+
+    // Create the initial empty model message in history and keep reference to update
+    final initialContent = gemini.Content(
+      parts: [],
+      role: 'model',
+    );
+    _chatHistory.add(initialContent);
+    _uiChatHistory.add(initialContent);
+    _chatUpdateController.add(null);
+
+    final historyIndex = _chatHistory.length - 1;
+    final uiHistoryIndex = _uiChatHistory.length - 1;
 
     try {
       final stream = api.streamGenerateContent(
@@ -347,25 +363,10 @@ final class WorkflowClient extends MCPClient
         ),
       );
 
-      bool startedStreaming = false;
-
       await for (final response in stream) {
         lastResponse = response;
         final content = response.candidates.firstOrNull?.content;
         if (content == null) continue;
-
-        if (!startedStreaming) {
-          isThinking.value = false;
-          isStreaming.value = true;
-          startedStreaming = true;
-          // Create the initial empty model message in history
-          final initialContent = gemini.Content(
-            parts: [],
-            role: 'model',
-          );
-          _chatHistory.add(initialContent);
-          _uiChatHistory.add(initialContent);
-        }
 
         for (final part in content.parts) {
           if (part.text != null) {
@@ -383,24 +384,25 @@ final class WorkflowClient extends MCPClient
           }
         }
 
-        // Update the last entry in place
+        // Update the history entries in place
         final updatedContent = gemini.Content(
           parts: List.from(accumulatedParts),
           role: 'model',
         );
-        _chatHistory[_chatHistory.length - 1] = updatedContent;
-        _uiChatHistory[_uiChatHistory.length - 1] = updatedContent;
+        _chatHistory[historyIndex] = updatedContent;
+        _uiChatHistory[uiHistoryIndex] = updatedContent;
         _chatUpdateController.add(null);
       }
 
-      return _chatHistory.last;
+      return _chatHistory[historyIndex];
     } catch (e) {
       final errorContent = gemini.Content(
         parts: [gemini.Part(text: 'Error: $e')],
         role: 'model',
       );
-      _chatHistory.add(errorContent);
-      _uiChatHistory.add(errorContent);
+      // We already pushed an entry, so we replace it with the error
+      _chatHistory[historyIndex] = errorContent;
+      _uiChatHistory[uiHistoryIndex] = errorContent;
       _chatUpdateController.add(null);
       return errorContent;
     } finally {
@@ -436,13 +438,10 @@ final class WorkflowClient extends MCPClient
 
   /// Prints `text` and adds it to the chat history
   void _chatToUser(String text) {
-    // Note: This is now mostly used for non-model messages or final summaries if they
-    // aren't already in history. 
     final content = gemini.Content(
       parts: [gemini.Part(text: text)],
       role: 'model',
     );
-    logger.stdout('\n$text');
     _chatHistory.add(content);
     _uiChatHistory.add(content);
     _chatUpdateController.add(null);
@@ -451,14 +450,21 @@ final class WorkflowClient extends MCPClient
   /// Handles a function call response from the model.
   ///
   /// Invokes a function and adds the result as context to the chat history.
-  Future<void> handleFunctionCall(gemini.FunctionCall functionCall) async {
-    final callContent = gemini.Content(
-      parts: [gemini.Part(functionCall: functionCall)],
-      role: 'model',
-    );
-    _chatHistory.add(callContent);
-    _uiChatHistory.add(callContent);
-    _chatUpdateController.add(null);
+  /// If [addToHistory] is true (default), the call is added to history.
+  /// If false, it's assumed the call is already in history (e.g. from streaming).
+  Future<void> handleFunctionCall(
+    gemini.FunctionCall functionCall, {
+    bool addToHistory = true,
+  }) async {
+    if (addToHistory) {
+      final callContent = gemini.Content(
+        parts: [gemini.Part(functionCall: functionCall)],
+        role: 'model',
+      );
+      _chatHistory.add(callContent);
+      _uiChatHistory.add(callContent);
+      _chatUpdateController.add(null);
+    }
 
     final connection = connectionForFunction[functionCall.name];
     var output = '';

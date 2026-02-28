@@ -65,6 +65,7 @@ class _ChatViewState extends State<ChatView> {
     if (controller.offset >= controller.maxScrollExtent - 1) {
       _shouldScrollToBottom = true;
     }
+    setState(() {});
   }
 
   List<_ChatDisplayItem> _buildDisplayItems() {
