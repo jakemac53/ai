@@ -65,8 +65,7 @@ class _ChatLayoutState extends State<ChatLayout> {
     component.client.latestTotalTokens.addListener(_onTokensChanged);
     component.client.activeElicitation.addListener(_onElicitationChanged);
     component.client.activePromptElicitation.addListener(_onElicitationChanged);
-    component.client.thinkingEnabled.addListener(_onSettingsChanged);
-    component.client.thinkingBudget.addListener(_onSettingsChanged);
+    component.client.showThoughts.addListener(_onSettingsChanged);
     component.client.modelName.addListener(_onSettingsChanged);
 
     _inputController.addListener(_onInputChanged);
@@ -85,8 +84,7 @@ class _ChatLayoutState extends State<ChatLayout> {
     component.client.activePromptElicitation.removeListener(
       _onElicitationChanged,
     );
-    component.client.thinkingEnabled.removeListener(_onSettingsChanged);
-    component.client.thinkingBudget.removeListener(_onSettingsChanged);
+    component.client.showThoughts.removeListener(_onSettingsChanged);
     component.client.modelName.removeListener(_onSettingsChanged);
     super.dispose();
   }

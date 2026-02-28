@@ -104,8 +104,7 @@ final class WorkflowClient extends MCPClient
   final ValueNotifier<bool> isThinking = ValueNotifier(false);
   final ValueNotifier<bool> isStreaming = ValueNotifier(false);
 
-  final ValueNotifier<bool> thinkingEnabled = ValueNotifier(false);
-  final ValueNotifier<int> thinkingBudget = ValueNotifier(1024);
+  final ValueNotifier<bool> showThoughts = ValueNotifier(false);
   final StreamQueue<String> stdinQueue;
   final List<String> serverCommands;
   final List<ServerConnection> serverConnections = [];
@@ -375,10 +374,9 @@ final class WorkflowClient extends MCPClient
           systemInstruction: systemInstruction,
           generationConfig: gemini.GenerationConfig(
             thinkingConfig:
-                thinkingEnabled.value
+              showThoughts.value
                     ? gemini.ThinkingConfig(
                       includeThoughts: true,
-                      thinkingBudget: thinkingBudget.value,
                     )
                     : null,
         ),
