@@ -87,12 +87,24 @@ class SkillLoader {
   }
 
   Skill? _parseSkill(String content, String path) {
-    final parts = content.split('---');
-    if (parts.length < 3) return null;
+    final parts = content.split('---\n');
+    if (parts.length < 3) {
+      _logger.stderr(
+        'Failed to parse skill at $path: Invalid format, requires a header '
+        'section surrounded by lines with just "---".',
+      );
+      return null;
+    }
 
     try {
       final yaml = loadYaml(parts[1]);
-      if (yaml is! YamlMap) return null;
+      if (yaml is! YamlMap) {
+        _logger.stderr(
+          'Failed to parse skill at $path: Invalid format, header section '
+          'should be a YAML map.',
+        );
+        return null;
+      }
 
       final name = yaml['name']?.toString();
       final description = yaml['description']?.toString();
