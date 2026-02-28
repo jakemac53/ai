@@ -6,6 +6,7 @@ import 'package:google_cloud_ai_generativelanguage_v1beta/generativelanguage.dar
 
 import 'package:mcp_examples/workflow_client.dart';
 import 'package:mcp_examples/ui/draggable_scrollbar.dart';
+import 'package:mcp_examples/ui/resource_view.dart';
 
 class ChatView extends StatefulComponent {
   final WorkflowClient client;
@@ -28,6 +29,13 @@ class _FunctionGroupItem extends _ChatDisplayItem {
   final gemini.FunctionCall call;
   final gemini.FunctionResponse? response;
   _FunctionGroupItem(this.call, this.response);
+}
+
+class _ResourceItem extends _ChatDisplayItem {
+  final String uri;
+  final String? name;
+  final String contents;
+  _ResourceItem({required this.uri, this.name, required this.contents});
 }
 
 class _ChatViewState extends State<ChatView> {
@@ -72,6 +80,25 @@ class _ChatViewState extends State<ChatView> {
             i++; // Skip the response item in the next iteration.
           }
         }
+
+        // Check if this is a read_resource call and handle it specially.
+        if (call.name == 'read_resource' && response != null) {
+          try {
+            final output =
+                response.response?.fields['output']?.stringValue ?? '';
+            items.add(
+              _ResourceItem(
+                uri: call.args?.fields['uri']?.stringValue ?? '',
+                name: call.args?.fields['name']?.stringValue,
+                contents: output,
+              ),
+            );
+            continue; // Skip adding the default function group item.
+          } catch (e) {
+            // Not a valid read_resource call, fall through to default handling.
+          }
+        }
+
         items.add(_FunctionGroupItem(call, response));
       } else {
         items.add(_ContentItem(content));
@@ -109,6 +136,8 @@ class _ChatViewState extends State<ChatView> {
                   return _buildContentWidget(context, item.content);
                 } else if (item is _FunctionGroupItem) {
                   return _buildFunctionGroupWidget(context, index, item);
+                } else if (item is _ResourceItem) {
+                  return _buildResourceWidget(context, item);
                 }
                 return const SizedBox();
               },
@@ -228,6 +257,14 @@ class _ChatViewState extends State<ChatView> {
             ),
         ],
       ),
+    );
+  }
+
+  Component _buildResourceWidget(BuildContext context, _ResourceItem item) {
+    return ResourceView(
+      uri: item.uri,
+      name: item.name,
+      contents: item.contents,
     );
   }
 }

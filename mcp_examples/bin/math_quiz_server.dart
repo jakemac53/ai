@@ -14,7 +14,11 @@ void main() {
 }
 
 base class MathQuizServer extends MCPServer
-    with LoggingSupport, ElicitationRequestSupport, ToolsSupport {
+    with
+        LoggingSupport,
+        ElicitationRequestSupport,
+        ToolsSupport,
+        ResourcesSupport {
   MathQuizServer(super.channel)
     : super.fromStreamChannel(
         implementation: Implementation(
@@ -30,6 +34,69 @@ base class MathQuizServer extends MCPServer
         inputSchema: Schema.object(properties: {}),
       ),
       _handleMathQuiz,
+    );
+
+    addResource(
+      Resource(
+        name: 'multiplication',
+        description: 'A guide to multiplication.',
+        uri: 'math://multiplication',
+      ),
+      (request) {
+        return ReadResourceResult(
+          contents: [
+            TextResourceContents(
+              uri: 'math://multiplication',
+              text:
+                  'Multiplication works by adding a number to itself a '
+                  'specified number of times. For example, 3 * 4 means '
+                  'adding 3 to itself 4 times, which equals 12. See also '
+                  'math://addition.',
+            ),
+          ],
+        );
+      },
+    );
+
+    addResource(
+      Resource(
+        name: 'addition',
+        description: 'A guide to addition.',
+        uri: 'math://addition',
+      ),
+      (request) {
+        return ReadResourceResult(
+          contents: [
+            TextResourceContents(
+              uri: 'math://addition',
+              text:
+                  'Addition works by combining numbers to find their sum. '
+                  'For example, 3 + 4 means combining 3 and 4, which equals 7.',
+            ),
+          ],
+        );
+      },
+    );
+
+    addResource(
+      Resource(
+        name: 'prime numbers',
+        description: 'A guide to prime numbers.',
+        uri: 'math://prime_numbers',
+      ),
+      (request) {
+        return ReadResourceResult(
+          contents: [
+            TextResourceContents(
+              uri: 'math://prime_numbers',
+              text:
+                  'Prime numbers are numbers that are only divisible by 1 and '
+                  'themselves. For example, 7 is a prime number because it is '
+                  'only divisible by 1 and 7.',
+            ),
+          ],
+        );
+      },
     );
   }
 

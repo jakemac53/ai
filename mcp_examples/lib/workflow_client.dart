@@ -104,6 +104,7 @@ final class WorkflowClient extends MCPClient
   Completer<Map<String, String>?>? _promptElicitationCompleter;
 
   final ValueNotifier<List<Prompt>> availablePrompts = ValueNotifier([]);
+  final ValueNotifier<List<Resource>> availableResources = ValueNotifier([]);
 
   late final gemini.GenerativeService api;
   final http.Client _client;
@@ -169,6 +170,22 @@ final class WorkflowClient extends MCPClient
     _listenToLogs();
     final serverTools = await _listServerCapabilities();
     await _fetchPrompts();
+    await _fetchResources();
+
+    _chatHistory.add(
+      gemini.Content(
+        parts: [
+          gemini.Part(text: '<resource-list>'),
+          for (final resource in availableResources.value)
+            gemini.Part(
+              text:
+                  '<resource uri="${resource.uri}" name="${resource.name}">${resource.description}</resource>',
+            ),
+          gemini.Part(text: '</resource-list>'),
+        ],
+        role: 'user',
+      ),
+    );
 
     // Introduce yourself.
     _addToHistory('Please introduce yourself and explain how you can help.');
@@ -248,7 +265,7 @@ final class WorkflowClient extends MCPClient
         } else {
           continuation = 'Please proceed to the next step of the plan.';
         }
-        await _handleFunctionCall(functionCall);
+        await handleFunctionCall(functionCall);
       } else {
         logger.stderr('Unrecognized response type from the model: $response.');
       }
@@ -342,7 +359,7 @@ final class WorkflowClient extends MCPClient
   /// Handles a function call response from the model.
   ///
   /// Invokes a function and adds the result as context to the chat history.
-  Future<void> _handleFunctionCall(gemini.FunctionCall functionCall) async {
+  Future<void> handleFunctionCall(gemini.FunctionCall functionCall) async {
     final callContent = gemini.Content(
       parts: [gemini.Part(functionCall: functionCall)],
       role: 'model',
@@ -647,6 +664,17 @@ final class WorkflowClient extends MCPClient
       }
     }
     availablePrompts.value = prompts;
+  }
+
+  Future<void> _fetchResources() async {
+    final resources = <Resource>[];
+    for (var connection in serverConnections) {
+      if (connection.serverCapabilities.resources != null) {
+        final result = await connection.listResources();
+        resources.addAll(result.resources);
+      }
+    }
+    availableResources.value = resources;
   }
 
   Future<void> usePrompt(Prompt prompt, Map<String, String>? arguments) async {

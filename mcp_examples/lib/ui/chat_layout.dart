@@ -1,6 +1,5 @@
 import 'package:nocterm/nocterm.dart';
 import 'package:dart_mcp/client.dart';
-
 import 'package:mcp_examples/workflow_client.dart';
 import 'package:mcp_examples/buffered_logger.dart';
 import 'package:mcp_examples/ui/chat_view.dart';
@@ -9,6 +8,11 @@ import 'package:mcp_examples/ui/mcp_view.dart';
 import 'package:mcp_examples/ui/elicitation_overlay.dart';
 import 'package:mcp_examples/ui/prompt_autocomplete_overlay.dart';
 import 'package:mcp_examples/ui/prompt_arguments_overlay.dart';
+import 'package:mcp_examples/ui/resource_autocomplete_overlay.dart';
+import 'package:google_cloud_ai_generativelanguage_v1beta/generativelanguage.dart'
+    as gemini;
+
+import 'package:google_cloud_protobuf/protobuf.dart' as pb;
 
 class ChatLayout extends StatefulComponent {
   final WorkflowClient client;
@@ -33,9 +37,16 @@ class _ChatLayoutState extends State<ChatLayout> {
   final ScrollController _chatScrollController = ScrollController();
   final TextEditingController _inputController = TextEditingController();
 
+  // Prompt autocomplete state
   bool _isPromptMode = false;
   int _promptSelectedIndex = 0;
   String _promptQuery = '';
+
+  // Resource autocomplete state
+  List<Resource> _resourceSuggestions = [];
+  int _resourceSelectedIndex = 0;
+  bool _isResourceAutocompleteActive = false;
+  String _resourceAutocompletePrefix = '';
 
   @override
   void initState() {
@@ -75,18 +86,20 @@ class _ChatLayoutState extends State<ChatLayout> {
 
   void _onInputChanged() {
     final text = _inputController.text;
+    final cursorPosition = _inputController.selection.baseOffset;
+
+    // Prompt mode
     if (text.startsWith('/')) {
       if (!_isPromptMode) {
         setState(() {
           _isPromptMode = true;
+          _isResourceAutocompleteActive = false;
           _promptSelectedIndex = 0;
-          _promptQuery = text.substring(1);
-        });
-      } else {
-        setState(() {
-          _promptQuery = text.substring(1);
         });
       }
+      setState(() {
+        _promptQuery = text.substring(1);
+      });
     } else {
       if (_isPromptMode) {
         setState(() {
@@ -94,6 +107,41 @@ class _ChatLayoutState extends State<ChatLayout> {
         });
       }
     }
+
+    // Resource autocomplete mode
+    final atIndex = text.substring(0, cursorPosition).lastIndexOf('@');
+    if (atIndex != -1) {
+      final prefix = text.substring(atIndex + 1, cursorPosition);
+      if (!_isResourceAutocompleteActive ||
+          prefix != _resourceAutocompletePrefix) {
+        setState(() {
+          _isResourceAutocompleteActive = true;
+          _isPromptMode = false;
+          _resourceAutocompletePrefix = prefix;
+          _updateResourceSuggestions();
+        });
+      }
+    } else {
+      if (_isResourceAutocompleteActive) {
+        setState(() {
+          _isResourceAutocompleteActive = false;
+        });
+      }
+    }
+  }
+
+  void _updateResourceSuggestions() {
+    final allResources = component.client.availableResources.value;
+    if (_resourceAutocompletePrefix.isEmpty) {
+      _resourceSuggestions = allResources;
+    } else {
+      final query = _resourceAutocompletePrefix.toLowerCase();
+      _resourceSuggestions =
+          allResources
+              .where((r) => r.name.toLowerCase().contains(query))
+              .toList();
+    }
+    _resourceSelectedIndex = 0;
   }
 
   void _onElicitationChanged() {
@@ -194,6 +242,16 @@ class _ChatLayoutState extends State<ChatLayout> {
                     child: PromptAutocompleteOverlay(
                       prompts: _filteredPrompts,
                       selectedIndex: _promptSelectedIndex,
+                    ),
+                  ),
+                if (_isResourceAutocompleteActive)
+                  Positioned(
+                    bottom: 0,
+                    left: 2,
+                    right: 2,
+                    child: ResourceAutocompleteOverlay(
+                      resources: _resourceSuggestions,
+                      selectedIndex: _resourceSelectedIndex,
                     ),
                   ),
               ],
@@ -345,6 +403,8 @@ class _ChatLayoutState extends State<ChatLayout> {
                   if (value.trim().isNotEmpty) {
                     if (_isPromptMode) {
                       _selectPrompt();
+                    } else if (_isResourceAutocompleteActive) {
+                      _selectResource();
                     } else {
                       component.client.submitInput(value);
                       _inputController.clear();
@@ -373,8 +433,32 @@ class _ChatLayoutState extends State<ChatLayout> {
                       });
                       return true;
                     }
-                    // If you hit ctrl+c in the chat box, just clear it and don't exit.
-                  } else if (event.isControlPressed &&
+                  } else if (_isResourceAutocompleteActive) {
+                    if (event.logicalKey == LogicalKey.arrowDown) {
+                      setState(() {
+                        _resourceSelectedIndex =
+                            (_resourceSelectedIndex + 1) %
+                            _resourceSuggestions.length;
+                      });
+                      return true;
+                    } else if (event.logicalKey == LogicalKey.arrowUp) {
+                      setState(() {
+                        _resourceSelectedIndex =
+                            (_resourceSelectedIndex -
+                                1 +
+                                _resourceSuggestions.length) %
+                            _resourceSuggestions.length;
+                      });
+                      return true;
+                    } else if (event.logicalKey == LogicalKey.escape) {
+                      setState(() {
+                        _isResourceAutocompleteActive = false;
+                      });
+                      return true;
+                    }
+                  }
+                  // If you hit ctrl+c in the chat box, just clear it and don't exit.
+                  if (event.isControlPressed &&
                       event.logicalKey == LogicalKey.keyC &&
                       _inputController.text.isNotEmpty) {
                     _inputController.clear();
@@ -402,6 +486,23 @@ class _ChatLayoutState extends State<ChatLayout> {
       }
 
       component.client.usePrompt(prompt, arguments);
+    }
+  }
+
+  void _selectResource() {
+    if (_resourceSuggestions.isNotEmpty &&
+        _resourceSelectedIndex < _resourceSuggestions.length) {
+      final resource = _resourceSuggestions[_resourceSelectedIndex];
+      final functionCall = gemini.FunctionCall(
+        name: 'read_resource',
+        args: pb.Struct.fromJson({'uri': resource.uri}),
+      );
+      component.client.handleFunctionCall(functionCall);
+      _inputController.clear();
+
+      setState(() {
+        _isResourceAutocompleteActive = false;
+      });
     }
   }
 }
