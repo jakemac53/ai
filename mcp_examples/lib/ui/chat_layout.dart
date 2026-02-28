@@ -123,76 +123,86 @@ class _ChatLayoutState extends State<ChatLayout> {
     final logTabTitle = 'Logs${unreadCount > 0 ? ' ($unreadCount)' : ''}';
     final theme = TuiTheme.of(context);
 
-    return Column(
-      children: [
-        // Tab Header
-        Row(
-          children: [
-            _buildTab('Chat', 0),
-            const SizedBox(width: 2),
-            _buildTab(logTabTitle, 1),
-            const SizedBox(width: 2),
-            _buildTab('MCP Servers', 2),
-            const Spacer(),
-            GestureDetector(
-              onTap: component.onThemeToggle,
-              child: Container(
-                decoration: BoxDecoration(
-                  border: BoxBorder.all(color: theme.outline),
-                ),
-                padding: const EdgeInsets.symmetric(horizontal: 1),
-                child: Text(
-                  component.isDark ? '☀️ Light' : '🌙 Dark',
-                  style: TextStyle(color: theme.primary),
+    return SelectionArea(
+      onSelectionCompleted: (text) {
+        if (text.isNotEmpty) {
+          ClipboardManager.copy(text);
+          component.client.logger.stdout(
+            'Copied to clipboard: ${text.length} chars',
+          );
+        }
+      },
+      child: Column(
+        children: [
+          // Tab Header
+          Row(
+            children: [
+              _buildTab('Chat', 0),
+              const SizedBox(width: 2),
+              _buildTab(logTabTitle, 1),
+              const SizedBox(width: 2),
+              _buildTab('MCP Servers', 2),
+              const Spacer(),
+              GestureDetector(
+                onTap: component.onThemeToggle,
+                child: Container(
+                  decoration: BoxDecoration(
+                    border: BoxBorder.all(color: theme.outline),
+                  ),
+                  padding: const EdgeInsets.symmetric(horizontal: 1),
+                  child: Text(
+                    component.isDark ? '☀️ Light' : '🌙 Dark',
+                    style: TextStyle(color: theme.primary),
+                  ),
                 ),
               ),
-            ),
-          ],
-        ),
-        const Divider(),
-        // Main Content Area
-        Expanded(
-          child: Stack(
-            children: [
-              _buildMainContent(),
-              if (component.client.activeElicitation.value != null)
-                Center(
-                  child: Container(
-                    width: 60,
-                    height: 20,
-                    child: ElicitationOverlay(
-                      client: component.client,
-                      request: component.client.activeElicitation.value!,
-                    ),
-                  ),
-                ),
-              if (component.client.activePromptElicitation.value != null)
-                Center(
-                  child: Container(
-                    width: 60,
-                    height: 20,
-                    child: PromptArgumentsOverlay(
-                      client: component.client,
-                      prompt: component.client.activePromptElicitation.value!,
-                    ),
-                  ),
-                ),
-              if (_isPromptMode)
-                Positioned(
-                  bottom: 0,
-                  left: 2,
-                  right: 2,
-                  child: PromptAutocompleteOverlay(
-                    prompts: _filteredPrompts,
-                    selectedIndex: _promptSelectedIndex,
-                  ),
-                ),
             ],
           ),
-        ),
-        // Sticky Footer
-        _buildFooter(),
-      ],
+          const Divider(),
+          // Main Content Area
+          Expanded(
+            child: Stack(
+              children: [
+                _buildMainContent(),
+                if (component.client.activeElicitation.value != null)
+                  Center(
+                    child: Container(
+                      width: 60,
+                      height: 20,
+                      child: ElicitationOverlay(
+                        client: component.client,
+                        request: component.client.activeElicitation.value!,
+                      ),
+                    ),
+                  ),
+                if (component.client.activePromptElicitation.value != null)
+                  Center(
+                    child: Container(
+                      width: 60,
+                      height: 20,
+                      child: PromptArgumentsOverlay(
+                        client: component.client,
+                        prompt: component.client.activePromptElicitation.value!,
+                      ),
+                    ),
+                  ),
+                if (_isPromptMode)
+                  Positioned(
+                    bottom: 0,
+                    left: 2,
+                    right: 2,
+                    child: PromptAutocompleteOverlay(
+                      prompts: _filteredPrompts,
+                      selectedIndex: _promptSelectedIndex,
+                    ),
+                  ),
+              ],
+            ),
+          ),
+          // Sticky Footer
+          _buildFooter(),
+        ],
+      ),
     );
   }
 
@@ -299,14 +309,8 @@ class _ChatLayoutState extends State<ChatLayout> {
     return Row(
       children: [
         Text('[', style: TextStyle(color: theme.outline)),
-        Text(
-          '█' * filledWidth,
-          style: TextStyle(color: theme.primary),
-        ),
-        Text(
-          ' ' * emptyWidth,
-          style: TextStyle(color: theme.outline),
-        ),
+        Text('█' * filledWidth, style: TextStyle(color: theme.primary)),
+        Text(' ' * emptyWidth, style: TextStyle(color: theme.outline)),
         Text(']', style: TextStyle(color: theme.outline)),
       ],
     );
@@ -369,6 +373,12 @@ class _ChatLayoutState extends State<ChatLayout> {
                       });
                       return true;
                     }
+                    // If you hit ctrl+c in the chat box, just clear it and don't exit.
+                  } else if (event.isControlPressed &&
+                      event.logicalKey == LogicalKey.keyC &&
+                      _inputController.text.isNotEmpty) {
+                    _inputController.clear();
+                    return true;
                   }
                   return false;
                 },

@@ -19,6 +19,7 @@ extension type ElicitRequest._fromMap(Map<String, Object?> _value)
   factory ElicitRequest({
     required String message,
     required ObjectSchema requestedSchema,
+    Meta? meta,
   }) {
     assert(
       validateRequestedSchema(requestedSchema),
@@ -28,6 +29,7 @@ extension type ElicitRequest._fromMap(Map<String, Object?> _value)
       'mode': ElicitationMode.form.name,
       'message': message,
       'requestedSchema': requestedSchema,
+      if (meta != null) '_meta': meta,
     });
   }
 
@@ -36,12 +38,14 @@ extension type ElicitRequest._fromMap(Map<String, Object?> _value)
     required String message,
     required String url,
     required String elicitationId,
+    Meta? meta,
   }) {
     return ElicitRequest._fromMap({
       'mode': ElicitationMode.url.name,
       'message': message,
       'url': url,
       'elicitationId': elicitationId,
+      if (meta != null) '_meta': meta,
     });
   }
 

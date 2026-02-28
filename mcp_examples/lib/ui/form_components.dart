@@ -91,17 +91,16 @@ class _EnumSelectorState extends State<EnumSelector> {
               style: TextStyle(
                 color:
                     isSelected
-                        ? const Color(0xFF00FF00) // Keep standard green for selected
+                        ? const Color(
+                          0xFF00FF00,
+                        ) // Keep standard green for selected
                         : theme.outline,
               ),
             ),
             Text(
               isFocused ? '> $label' : '  $label',
               style: TextStyle(
-                color:
-                    isFocused
-                        ? theme.onSurface
-                        : theme.outline,
+                color: isFocused ? theme.onSurface : theme.outline,
               ),
             ),
           ],
@@ -139,10 +138,7 @@ class _EnumSelectorState extends State<EnumSelector> {
         padding: const EdgeInsets.symmetric(horizontal: 1),
         decoration: BoxDecoration(
           border: BoxBorder.all(
-            color:
-                component.focused
-                    ? theme.primary
-                    : theme.outline,
+            color: component.focused ? theme.primary : theme.outline,
           ),
         ),
         child: Column(
@@ -235,17 +231,17 @@ Component buildFormField({
                     if (!isEnum) return null;
 
                     return EnumSelector(
-                  focused: focused,
+                      focused: focused,
                       isMultiSelect:
                           enumSchema.isUntitledMultiSelect ||
                           enumSchema.isTitledMultiSelect,
                       options: _getEnumOptions(enumSchema),
                       value: state.enumValue,
-                  onChanged: (newValue) {
+                      onChanged: (newValue) {
                         state.enumValue = newValue;
-                    onChanged?.call();
-                  },
-                  onKeyEvent: onKeyEvent,
+                        onChanged?.call();
+                      },
+                      onKeyEvent: onKeyEvent,
                     );
                   }() ??
                   TextField(
@@ -257,9 +253,7 @@ Component buildFormField({
                     decoration: InputDecoration(
                       border: BoxBorder.all(
                         color:
-                            state.error != null
-                                ? theme.error
-                                : theme.outline,
+                            state.error != null ? theme.error : theme.outline,
                       ),
                       contentPadding: const EdgeInsets.symmetric(horizontal: 1),
                     ),

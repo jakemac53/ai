@@ -28,10 +28,7 @@ class PromptAutocompleteOverlay extends StatelessComponent {
         children: [
           Text(
             ' Prompts ',
-            style: TextStyle(
-              fontWeight: FontWeight.bold,
-              color: theme.primary,
-            ),
+            style: TextStyle(fontWeight: FontWeight.bold, color: theme.primary),
           ),
           const Divider(),
           ...List.generate(prompts.length, (index) {
@@ -51,10 +48,7 @@ class PromptAutocompleteOverlay extends StatelessComponent {
                     style: TextStyle(
                       fontWeight:
                           isSelected ? FontWeight.bold : FontWeight.normal,
-                      color:
-                          isSelected
-                              ? theme.onSurface
-                              : theme.outline,
+                      color: isSelected ? theme.onSurface : theme.outline,
                     ),
                   ),
                   if (prompt.description != null)

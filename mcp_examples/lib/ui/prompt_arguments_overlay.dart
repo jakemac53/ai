@@ -89,20 +89,23 @@ class _PromptArgumentsOverlayState extends State<PromptArgumentsOverlay> {
         children: [
           Text(
             'Prompt Arguments: ${component.prompt.name}',
-            style: TextStyle(
-              fontWeight: FontWeight.bold,
-              color: theme.primary,
-            ),
+            style: TextStyle(fontWeight: FontWeight.bold, color: theme.primary),
           ),
           if (component.prompt.description != null) ...[
             const SizedBox(height: 1),
-            Text(component.prompt.description!, style: TextStyle(color: theme.onSurface)),
+            Text(
+              component.prompt.description!,
+              style: TextStyle(color: theme.onSurface),
+            ),
           ],
           const SizedBox(height: 1),
           const Divider(),
           const SizedBox(height: 1),
           if (_fields.isEmpty)
-            Text('This prompt has no arguments.', style: TextStyle(color: theme.onSurface))
+            Text(
+              'This prompt has no arguments.',
+              style: TextStyle(color: theme.onSurface),
+            )
           else
             ..._buildFormFields(context),
           const Spacer(),
@@ -114,10 +117,7 @@ class _PromptArgumentsOverlayState extends State<PromptArgumentsOverlay> {
                 ' [Enter] Submit ',
                 style: const TextStyle(color: Color(0xFF00FF00)),
               ),
-              Text(
-                ' [Esc] Cancel ',
-                style: TextStyle(color: theme.outline),
-              ),
+              Text(' [Esc] Cancel ', style: TextStyle(color: theme.outline)),
             ],
           ),
         ],

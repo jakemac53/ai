@@ -122,10 +122,7 @@ class _ChatViewState extends State<ChatView> {
   Component _buildContentWidget(BuildContext context, gemini.Content content) {
     final theme = TuiTheme.of(context);
     final role = content.role == 'user' ? 'You' : 'Model';
-    final color =
-        content.role == 'user'
-            ? theme.primary
-            : theme.secondary;
+    final color = content.role == 'user' ? theme.primary : theme.secondary;
     return Container(
       padding: EdgeInsets.zero,
       child: Row(
@@ -162,7 +159,11 @@ class _ChatViewState extends State<ChatView> {
     );
   }
 
-  Component _buildFunctionGroupWidget(BuildContext context, int index, _FunctionGroupItem item) {
+  Component _buildFunctionGroupWidget(
+    BuildContext context,
+    int index,
+    _FunctionGroupItem item,
+  ) {
     final theme = TuiTheme.of(context);
     final isExpanded = _expandedFunctionGroups.contains(index);
     final call = item.call;

@@ -106,7 +106,10 @@ class _McpViewState extends State<McpView> {
             padding: const EdgeInsets.only(bottom: 1),
             child: Text(
               '${isServerExpanded ? "▼" : "▶"} $serverName (v$version)',
-              style: TextStyle(fontWeight: FontWeight.bold, color: theme.primary),
+              style: TextStyle(
+                fontWeight: FontWeight.bold,
+                color: theme.primary,
+              ),
             ),
           ),
         ),
@@ -150,10 +153,7 @@ class _McpViewState extends State<McpView> {
         }
       } else {
         children.add(
-          Text(
-            '  ▶ Tools: 0',
-            style: TextStyle(color: theme.outline),
-          ),
+          Text('  ▶ Tools: 0', style: TextStyle(color: theme.outline)),
         );
       }
 
@@ -193,10 +193,7 @@ class _McpViewState extends State<McpView> {
         }
       } else {
         children.add(
-          Text(
-            '  ▶ Resources: 0',
-            style: TextStyle(color: theme.outline),
-          ),
+          Text('  ▶ Resources: 0', style: TextStyle(color: theme.outline)),
         );
       }
 
@@ -236,10 +233,7 @@ class _McpViewState extends State<McpView> {
         }
       } else {
         children.add(
-          Text(
-            '  ▶ Prompts: 0',
-            style: TextStyle(color: theme.outline),
-          ),
+          Text('  ▶ Prompts: 0', style: TextStyle(color: theme.outline)),
         );
       }
 

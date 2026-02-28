@@ -45,6 +45,9 @@ base class MathQuizServer extends MCPServer
           properties: {'name': Schema.string(title: 'Your full name')},
           required: ['name'],
         ),
+        // Some clients require the progress token from a tool call
+        // for elicitations.
+        meta: request.meta,
       ),
     );
 
@@ -67,6 +70,9 @@ base class MathQuizServer extends MCPServer
           },
           required: ['a1', 'a2', 'a3'],
         ),
+        // Some clients require the progress token from a tool call
+        // for elicitations.
+        meta: request.meta,
       ),
     );
 
@@ -96,6 +102,9 @@ base class MathQuizServer extends MCPServer
           },
           required: ['a1', 'a2', 'a3'],
         ),
+        // Some clients require the progress token from a tool call
+        // for elicitations.
+        meta: request.meta,
       ),
     );
 
@@ -125,6 +134,9 @@ base class MathQuizServer extends MCPServer
           },
           required: ['answer'],
         ),
+        // Some clients require the progress token from a tool call
+        // for elicitations.
+        meta: request.meta,
       ),
     );
 

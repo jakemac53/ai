@@ -148,7 +148,10 @@ class _ElicitationOverlayState extends State<ElicitationOverlay> {
             style: TextStyle(fontWeight: FontWeight.bold, color: theme.warning),
           ),
           const SizedBox(height: 1),
-          Text(component.request.message, style: TextStyle(color: theme.onSurface)),
+          Text(
+            component.request.message,
+            style: TextStyle(color: theme.onSurface),
+          ),
           const SizedBox(height: 1),
           const Divider(),
           const SizedBox(height: 1),
