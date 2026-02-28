@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:nocterm/nocterm.dart';
 import 'package:google_cloud_ai_generativelanguage_v1beta/generativelanguage.dart'
     as gemini;
+import 'package:collection/collection.dart';
 
 import 'package:mcp_examples/workflow_client.dart';
 import 'package:mcp_examples/ui/draggable_scrollbar.dart';
@@ -24,26 +25,41 @@ sealed class _ChatDisplayItem {}
 
 class _ContentItem extends _ChatDisplayItem {
   final gemini.Content content;
-  _ContentItem(this.content);
+  final int historyIndex;
+  _ContentItem(this.content, this.historyIndex);
 }
 
 class _FunctionGroupItem extends _ChatDisplayItem {
   final gemini.FunctionCall call;
   final gemini.FunctionResponse? response;
-  _FunctionGroupItem(this.call, this.response);
+  final int historyIndex;
+  _FunctionGroupItem(this.call, this.response, this.historyIndex);
 }
 
 class _ResourceItem extends _ChatDisplayItem {
   final String uri;
   final String? name;
   final String contents;
-  _ResourceItem({required this.uri, this.name, required this.contents});
+  final int historyIndex;
+  _ResourceItem({
+    required this.uri,
+    this.name,
+    required this.contents,
+    required this.historyIndex,
+  });
 }
+
 class _SkillItem extends _ChatDisplayItem {
   final String name;
   final String path;
   final String contents;
-  _SkillItem({required this.name, required this.path, required this.contents});
+  final int historyIndex;
+  _SkillItem({
+    required this.name,
+    required this.path,
+    required this.contents,
+    required this.historyIndex,
+  });
 }
 
 class _ChatViewState extends State<ChatView> {
@@ -72,64 +88,83 @@ class _ChatViewState extends State<ChatView> {
   List<_ChatDisplayItem> _buildDisplayItems() {
     final items = <_ChatDisplayItem>[];
     final history = component.client.uiChatHistory;
+    final consumedIndices = <int>{};
 
     for (var i = 0; i < history.length; i++) {
+      if (consumedIndices.contains(i)) continue;
+
       final content = history[i];
-      if (content.parts.length == 1 &&
-          content.parts.first.functionCall != null) {
-        final call = content.parts.first.functionCall!;
+
+      // If the content has thoughts or regular text parts, add a content item.
+      if (content.parts.any((p) => p.thought || p.text != null)) {
+        items.add(
+          _ContentItem(
+            gemini.Content(
+              role: content.role,
+              parts:
+                  content.parts
+                      .where((p) => p.thought || p.text != null)
+                      .toList(),
+            ),
+            i,
+          ),
+        );
+      }
+
+      // Handle function calls within this content.
+      for (final part in content.parts) {
+        if (part.functionCall == null) continue;
+
+        final call = part.functionCall!;
         gemini.FunctionResponse? response;
+        int? responseIndex;
 
-        // Look ahead for a matching response.
-        if (i + 1 < history.length) {
-          final nextContent = history[i + 1];
-          if (nextContent.parts.length == 1 &&
-              nextContent.parts.first.functionResponse != null &&
-              nextContent.parts.first.functionResponse!.name == call.name) {
-            response = nextContent.parts.first.functionResponse;
-            i++; // Skip the response item in the next iteration.
+        // Look for the matching response.
+        for (var j = i + 1; j < history.length; j++) {
+          final nextContent = history[j];
+          final resPart = nextContent.parts.firstWhereOrNull(
+            (p) => p.functionResponse?.name == call.name,
+          );
+          if (resPart != null) {
+            response = resPart.functionResponse;
+            responseIndex = j;
+            break;
           }
         }
 
-        // Check if this is a read_resource call and handle it specially.
+        if (responseIndex != null) {
+          // If the response message ONLY contains this function response,
+          // mark the whole message as consumed so it's not shown as separate text.
+          final resContent = history[responseIndex];
+          if (resContent.parts.length == 1) {
+            consumedIndices.add(responseIndex);
+          }
+        }
+
+        // Add specialized widgets or the generic function group.
         if (call.name == 'read_resource' && response != null) {
-          try {
-            final output =
-                response.response?.fields['output']?.stringValue ?? '';
-            items.add(
-              _ResourceItem(
-                uri: call.args?.fields['uri']?.stringValue ?? '',
-                name: call.args?.fields['name']?.stringValue,
-                contents: output,
-              ),
-            );
-            continue; // Skip adding the default function group item.
-          } catch (e) {
-            // Not a valid read_resource call, fall through to default handling.
-          }
+          final output = response.response?.fields['output']?.stringValue ?? '';
+          items.add(
+            _ResourceItem(
+              uri: call.args?.fields['uri']?.stringValue ?? '',
+              name: call.args?.fields['name']?.stringValue,
+              contents: output,
+              historyIndex: i,
+            ),
+          );
+        } else if (call.name == 'read_skill' && response != null) {
+          final output = response.response?.fields['output']?.stringValue ?? '';
+          items.add(
+            _SkillItem(
+              name: call.args?.fields['name']?.stringValue ?? '',
+              path: '',
+              contents: output,
+              historyIndex: i,
+            ),
+          );
+        } else {
+          items.add(_FunctionGroupItem(call, response, i));
         }
-
-        // Check if this is a read_skill call and handle it specially.
-        if (call.name == 'read_skill' && response != null) {
-          try {
-            final output =
-                response.response?.fields['output']?.stringValue ?? '';
-            items.add(
-              _SkillItem(
-                name: call.args?.fields['name']?.stringValue ?? '',
-                path: '', // Path isn't strictly needed for display but could be added if we return it in output
-                contents: output,
-              ),
-            );
-            continue; // Skip adding the default function group item.
-          } catch (e) {
-            // Not a valid read_skill call, fall through to default handling.
-          }
-        }
-
-        items.add(_FunctionGroupItem(call, response));
-      } else {
-        items.add(_ContentItem(content));
       }
     }
     return items;
@@ -162,7 +197,12 @@ class _ChatViewState extends State<ChatView> {
                 final item = displayItems[index];
                 if (item is _ContentItem) {
                   final isLast = index == displayItems.length - 1;
-                  return _buildContentWidget(context, item.content, isLast: isLast);
+                  return _buildContentWidget(
+                    context,
+                    item.content,
+                    isLast: isLast,
+                    id: item.historyIndex,
+                  );
                 } else if (item is _FunctionGroupItem) {
                   return _buildFunctionGroupWidget(context, index, item);
                 } else if (item is _ResourceItem) {
@@ -183,6 +223,7 @@ class _ChatViewState extends State<ChatView> {
     BuildContext context,
     gemini.Content content, {
     bool isLast = false,
+    required int id,
   }) {
     final theme = TuiTheme.of(context);
     final isModel = content.role != 'user';
@@ -206,12 +247,14 @@ class _ChatViewState extends State<ChatView> {
                   if (content.parts.any((p) => p.thought)) ...[
                     Builder(
                       builder: (context) {
-                        final id = identityHashCode(content);
                         final isActivelyThinking =
                             isStreaming &&
-                            content.parts.any((p) => p.thought && p.text != null);
+                            content.parts.any(
+                              (p) => p.thought && p.text != null,
+                            );
                         final isExpanded =
-                            _expandedThoughts.contains(id) || isActivelyThinking;
+                            _expandedThoughts.contains(id) ||
+                            isActivelyThinking;
 
                         return Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
