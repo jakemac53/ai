@@ -30,11 +30,13 @@ final class WorkflowClient extends MCPClient
     this.verbose = false,
     this.persona,
     File? logFile,
-  }) : modelName = model.startsWith('models/') ? model : 'models/$model',
-       _client = auth.clientViaApiKey(geminiApiKey),
+  }) : _client = auth.clientViaApiKey(geminiApiKey),
        stdinQueue = StreamQueue(_inputController.stream),
        _skillLoader = SkillLoader(logger: logger),
        super(Implementation(name: 'Gemini workflow client', version: '0.1.0')) {
+    modelName = ValueNotifier(
+      model.startsWith('models/') ? model : 'models/$model',
+    );
     api = gemini.GenerativeService(client: _client);
     logSink = _createLogSink(logFile);
     addRoot(
@@ -122,7 +124,7 @@ final class WorkflowClient extends MCPClient
 
   late final gemini.GenerativeService api;
   final http.Client _client;
-  final String modelName;
+  late final ValueNotifier<String> modelName;
   gemini.Content get systemInstruction {
     final instructions = [
       'You are a developer assistant for Dart and Flutter apps. You are an expert software developer.',
@@ -347,7 +349,7 @@ final class WorkflowClient extends MCPClient
 
     // Create the initial empty model message in history and keep reference to update
     final initialContent = gemini.Content(
-      parts: [],
+      parts: accumulatedParts,
       role: 'model',
     );
     _chatHistory.add(initialContent);
@@ -358,9 +360,8 @@ final class WorkflowClient extends MCPClient
     final uiHistoryIndex = _uiChatHistory.length - 1;
 
     try {
-      final stream = api.streamGenerateContent(
-        gemini.GenerateContentRequest(
-          model: modelName,
+      final request = gemini.GenerateContentRequest(
+        model: modelName.value,
           contents: context,
           tools: tools ?? [],
           systemInstruction: systemInstruction,
@@ -372,37 +373,38 @@ final class WorkflowClient extends MCPClient
                       thinkingBudget: thinkingBudget.value,
                     )
                     : null,
-          ),
         ),
       );
+      final stream = api.streamGenerateContent(request);
 
       await for (final response in stream) {
         lastResponse = response;
         final content = response.candidates.firstOrNull?.content;
+        logger.stdout(jsonEncode(response));
         if (content == null) continue;
 
         for (final part in content.parts) {
-          if (part.text != null) {
-            // Append text to the last part if it was also text and same thought status
-            if (accumulatedParts.isNotEmpty &&
-                accumulatedParts.last.text != null &&
-                accumulatedParts.last.thought == part.thought) {
-              accumulatedParts.last = gemini.Part(
-                text: accumulatedParts.last.text! + part.text!,
-                thought: part.thought,
-                thoughtSignature: part.thoughtSignature,
-              );
-            } else {
-              accumulatedParts.add(part);
-            }
-          } else {
-            accumulatedParts.add(part);
-          }
+          // if (part.text != null) {
+          //   // Append text to the last part if it was also text and same thought status
+          //   if (accumulatedParts.isNotEmpty &&
+          //       accumulatedParts.last.text != null &&
+          //       accumulatedParts.last.thought == part.thought) {
+          //     accumulatedParts.last = gemini.Part(
+          //       text: accumulatedParts.last.text! + part.text!,
+          //       thought: part.thought,
+          //       thoughtSignature: part.thoughtSignature,
+          //     );
+          //   } else {
+          //     accumulatedParts.add(part);
+          //   }
+          // } else {
+          accumulatedParts.add(part);
+          // }
         }
 
         // Update the history entries in place
         final updatedContent = gemini.Content(
-          parts: List.from(accumulatedParts),
+          parts: accumulatedParts,
           role: 'model',
         );
         _chatHistory[historyIndex] = updatedContent;

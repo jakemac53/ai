@@ -67,6 +67,7 @@ class _ChatLayoutState extends State<ChatLayout> {
     component.client.activePromptElicitation.addListener(_onElicitationChanged);
     component.client.thinkingEnabled.addListener(_onSettingsChanged);
     component.client.thinkingBudget.addListener(_onSettingsChanged);
+    component.client.modelName.addListener(_onSettingsChanged);
 
     _inputController.addListener(_onInputChanged);
   }
@@ -86,6 +87,7 @@ class _ChatLayoutState extends State<ChatLayout> {
     );
     component.client.thinkingEnabled.removeListener(_onSettingsChanged);
     component.client.thinkingBudget.removeListener(_onSettingsChanged);
+    component.client.modelName.removeListener(_onSettingsChanged);
     super.dispose();
   }
 
@@ -349,7 +351,7 @@ class _ChatLayoutState extends State<ChatLayout> {
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Text(
-                ' Tokens: ↑ $inputTokens ($cachedTokens cached) | ↓ $outputTokens ',
+                ' Tokens: ↑ $inputTokens ($cachedTokens cached) | ↓ $outputTokens | Model: ${component.client.modelName.value.replaceFirst('models/', '')} ',
                 style: TextStyle(color: theme.onSurface),
               ),
               Row(

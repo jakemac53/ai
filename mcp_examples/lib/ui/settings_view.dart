@@ -22,6 +22,8 @@ class SettingsView extends StatelessComponent {
             ),
           ),
           const SizedBox(height: 1),
+          _buildModelSettings(context),
+          const SizedBox(height: 1),
           const Divider(),
           const SizedBox(height: 1),
           _buildThinkingSettings(context),
@@ -29,6 +31,55 @@ class SettingsView extends StatelessComponent {
       ),
     );
   }
+  Component _buildModelSettings(BuildContext context) {
+    final theme = TuiTheme.of(context);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Model Selection',
+          style: TextStyle(color: theme.secondary, fontWeight: FontWeight.bold),
+        ),
+        const SizedBox(height: 1),
+        Row(
+          children: [
+            _buildModelButton(context, 'gemini-2.0-flash'),
+            const SizedBox(width: 1),
+            _buildModelButton(context, 'gemini-2.0-pro-exp-02-05'),
+            const SizedBox(width: 1),
+            _buildModelButton(context, 'gemini-2.0-flash-thinking-exp-01-21'),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Component _buildModelButton(BuildContext context, String model) {
+    final theme = TuiTheme.of(context);
+    final shortName = model.split('-').skip(1).join('-');
+    final fullModel = 'models/$model';
+    final isSelected = client.modelName.value == fullModel;
+
+    return GestureDetector(
+      onTap: () {
+        client.modelName.value = fullModel;
+      },
+      child: Container(
+        decoration: BoxDecoration(
+          border: BoxBorder.all(color: isSelected ? theme.primary : theme.outline),
+          color: isSelected ? theme.primary : null,
+        ),
+        padding: const EdgeInsets.symmetric(horizontal: 1),
+        child: Text(
+          shortName.isEmpty ? model : shortName,
+          style: TextStyle(
+            color: isSelected ? theme.onPrimary : theme.onSurface,
+          ),
+        ),
+      ),
+    );
+  }
+
 
   Component _buildThinkingSettings(BuildContext context) {
     final theme = TuiTheme.of(context);
