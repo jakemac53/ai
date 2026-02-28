@@ -1,7 +1,7 @@
-import 'dart:async';
 import 'package:intl/intl.dart';
 import 'package:mcp_examples/buffered_logger.dart';
 import 'package:mcp_examples/ui/collapsible_view.dart';
+import 'package:mcp_examples/ui/spinner.dart';
 import 'package:nocterm/nocterm.dart' hide LogEntry;
 
 class LogView extends StatefulComponent {
@@ -122,25 +122,13 @@ class _ProgressLogItem extends StatefulComponent {
 }
 
 class _ProgressLogItemState extends State<_ProgressLogItem> {
-  Timer? _timer;
-
   @override
   void initState() {
     super.initState();
-    if (!component.entry.isFinished && !component.entry.isCancelled) {
-      _timer = Timer.periodic(const Duration(milliseconds: 100), (_) {
-        setState(() {});
-      });
-    }
+    component.logger.onUpdate.listen((_) {
+      if (mounted) setState(() {});
+    });
   }
-
-  @override
-  void dispose() {
-    _timer?.cancel();
-    super.dispose();
-  }
-
-  static const _frames = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
 
   @override
   Component build(BuildContext context) {
@@ -148,24 +136,15 @@ class _ProgressLogItemState extends State<_ProgressLogItem> {
     final entry = component.entry;
     final isActive = !entry.isFinished && !entry.isCancelled;
 
-    if (!isActive) {
-      _timer?.cancel();
-      _timer = null;
-    }
-
-    final spinnerFrame =
-        isActive
-            ? _frames[(DateTime.now().millisecondsSinceEpoch ~/ 100) %
-                _frames.length]
-            : '';
-
     return Container(
       decoration: BoxDecoration(border: BoxBorder.all(color: theme.outline)),
       padding: const EdgeInsets.symmetric(horizontal: 1),
       child: Row(
         children: [
-          if (isActive)
-            Text('$spinnerFrame ', style: TextStyle(color: component.color)),
+          if (isActive) ...[
+            Spinner(color: component.color),
+            const SizedBox(width: 1),
+          ],
           Text(
             'PROGRESS: ',
             style: TextStyle(

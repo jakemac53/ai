@@ -7,6 +7,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:async/async.dart';
+import 'package:collection/collection.dart';
 import 'package:dart_mcp/client.dart';
 import 'package:dart_mcp/stdio.dart';
 import 'package:google_cloud_ai_generativelanguage_v1beta/generativelanguage.dart'
@@ -90,6 +91,7 @@ final class WorkflowClient extends MCPClient
   final ValueNotifier<int> totalCachedInputTokens = ValueNotifier(0);
   final ValueNotifier<int> latestTotalTokens = ValueNotifier(0);
   final ValueNotifier<bool> isThinking = ValueNotifier(false);
+  final ValueNotifier<bool> isStreaming = ValueNotifier(false);
   final StreamQueue<String> stdinQueue;
   final List<String> serverCommands;
   final List<ServerConnection> serverConnections = [];
@@ -209,7 +211,10 @@ final class WorkflowClient extends MCPClient
       context: chatHistory,
       tools: serverTools,
     );
-    await _handleModelResponse(introResponse);
+    // Note: _generateContent now adds to history directly when it starts streaming.
+    // So we don't need to add it here, but we still need to process any tool calls
+    // or continuations from the final result.
+    await _handleModelResponse(introResponse, addToHistory: false);
 
     while (true) {
       await _waitForInputAndAddToHistory();
@@ -219,7 +224,8 @@ final class WorkflowClient extends MCPClient
         tools: serverTools,
       );
       while (true) {
-        final continuation = await _handleModelResponse(response);
+        final continuation =
+            await _handleModelResponse(response, addToHistory: false);
         if (continuation == null) break;
         _addToHistory(continuation);
         response = await _generateContent(
@@ -268,7 +274,18 @@ final class WorkflowClient extends MCPClient
   ///
   /// If this function returns a [String], then it should be fed back into the
   /// model as a user message in order to continue the conversation.
-  Future<String?> _handleModelResponse(gemini.Content response) async {
+  /// If [addToHistory] is true (default), the response is added to the history.
+  /// If false, it's assumed the response is already in history (e.g. from streaming).
+  Future<String?> _handleModelResponse(
+    gemini.Content response, {
+    bool addToHistory = true,
+  }) async {
+    if (addToHistory) {
+      _chatHistory.add(response);
+      _uiChatHistory.add(response);
+      _chatUpdateController.add(null);
+    }
+
     String? continuation;
     for (var part in response.parts) {
       if (part.text != null) {
@@ -317,9 +334,11 @@ final class WorkflowClient extends MCPClient
   }) async {
     isThinking.value = true;
     final progress = logger.progress('thinking');
-    gemini.GenerateContentResponse? response;
+    gemini.GenerateContentResponse? lastResponse;
+    final accumulatedParts = <gemini.Part>[];
+
     try {
-      response = await api.generateContent(
+      final stream = api.streamGenerateContent(
         gemini.GenerateContentRequest(
           model: modelName,
           contents: context,
@@ -327,46 +346,103 @@ final class WorkflowClient extends MCPClient
           systemInstruction: systemInstruction,
         ),
       );
-      return response.candidates.single.content!;
+
+      bool startedStreaming = false;
+
+      await for (final response in stream) {
+        lastResponse = response;
+        final content = response.candidates.firstOrNull?.content;
+        if (content == null) continue;
+
+        if (!startedStreaming) {
+          isThinking.value = false;
+          isStreaming.value = true;
+          startedStreaming = true;
+          // Create the initial empty model message in history
+          final initialContent = gemini.Content(
+            parts: [],
+            role: 'model',
+          );
+          _chatHistory.add(initialContent);
+          _uiChatHistory.add(initialContent);
+        }
+
+        for (final part in content.parts) {
+          if (part.text != null) {
+            // Append text to the last part if it was also text, or add new part
+            if (accumulatedParts.isNotEmpty &&
+                accumulatedParts.last.text != null) {
+              accumulatedParts.last = gemini.Part(
+                text: accumulatedParts.last.text! + part.text!,
+              );
+            } else {
+              accumulatedParts.add(part);
+            }
+          } else {
+            accumulatedParts.add(part);
+          }
+        }
+
+        // Update the last entry in place
+        final updatedContent = gemini.Content(
+          parts: List.from(accumulatedParts),
+          role: 'model',
+        );
+        _chatHistory[_chatHistory.length - 1] = updatedContent;
+        _uiChatHistory[_uiChatHistory.length - 1] = updatedContent;
+        _chatUpdateController.add(null);
+      }
+
+      return _chatHistory.last;
     } catch (e) {
-      return gemini.Content(
+      final errorContent = gemini.Content(
         parts: [gemini.Part(text: 'Error: $e')],
         role: 'model',
       );
+      _chatHistory.add(errorContent);
+      _uiChatHistory.add(errorContent);
+      _chatUpdateController.add(null);
+      return errorContent;
     } finally {
-      if (response != null) {
-        final inputTokens = response.usageMetadata?.promptTokenCount ?? 0;
-        final outputTokens = response.usageMetadata?.candidatesTokenCount ?? 0;
-        final cachedTokens =
-            response.usageMetadata?.cachedContentTokenCount ?? 0;
+      isStreaming.value = false;
+      isThinking.value = false;
+      _chatUpdateController.add(null);
+      if (lastResponse != null) {
+        final usage = lastResponse.usageMetadata;
+        if (usage != null) {
+          final inputTokens = usage.promptTokenCount;
+          final outputTokens = usage.candidatesTokenCount;
+          final cachedTokens = usage.cachedContentTokenCount;
 
-        totalInputTokens.value += inputTokens;
-        totalOutputTokens.value += outputTokens;
-        totalCachedInputTokens.value += cachedTokens;
-        latestTotalTokens.value = inputTokens + outputTokens;
+          totalInputTokens.value += inputTokens;
+          totalOutputTokens.value += outputTokens;
+          totalCachedInputTokens.value += cachedTokens;
+          latestTotalTokens.value = inputTokens + outputTokens;
 
-        progress.finish(
-          message:
-              '(input token usage: ${totalInputTokens.value} (+$inputTokens), output '
-              'token usage: ${totalOutputTokens.value} (+$outputTokens))',
-          showTiming: true,
-        );
+          progress.finish(
+            message:
+                '(input token usage: ${totalInputTokens.value} (+$inputTokens), output '
+                'token usage: ${totalOutputTokens.value} (+$outputTokens))',
+            showTiming: true,
+          );
+        } else {
+          progress.finish(message: 'done', showTiming: true);
+        }
       } else {
         progress.finish(message: 'failed', showTiming: true);
       }
-      isThinking.value = false;
     }
   }
 
   /// Prints `text` and adds it to the chat history
   void _chatToUser(String text) {
+    // Note: This is now mostly used for non-model messages or final summaries if they
+    // aren't already in history. 
     final content = gemini.Content(
       parts: [gemini.Part(text: text)],
       role: 'model',
     );
     logger.stdout('\n$text');
-    // Add the non-personalized text to the context as it might lose some
-    // useful info.
     _chatHistory.add(content);
     _uiChatHistory.add(content);
     _chatUpdateController.add(null);

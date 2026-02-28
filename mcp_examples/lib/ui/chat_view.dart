@@ -8,6 +8,7 @@ import 'package:mcp_examples/workflow_client.dart';
 import 'package:mcp_examples/ui/draggable_scrollbar.dart';
 import 'package:mcp_examples/ui/resource_view.dart';
 import 'package:mcp_examples/ui/skill_view.dart';
+import 'package:mcp_examples/ui/spinner.dart';
 
 class ChatView extends StatefulComponent {
   final WorkflowClient client;
@@ -158,7 +159,8 @@ class _ChatViewState extends State<ChatView> {
               itemBuilder: (context, index) {
                 final item = displayItems[index];
                 if (item is _ContentItem) {
-                  return _buildContentWidget(context, item.content);
+                  final isLast = index == displayItems.length - 1;
+                  return _buildContentWidget(context, item.content, isLast: isLast);
                 } else if (item is _FunctionGroupItem) {
                   return _buildFunctionGroupWidget(context, index, item);
                 } else if (item is _ResourceItem) {
@@ -175,10 +177,16 @@ class _ChatViewState extends State<ChatView> {
     );
   }
 
-  Component _buildContentWidget(BuildContext context, gemini.Content content) {
+  Component _buildContentWidget(
+    BuildContext context,
+    gemini.Content content, {
+    bool isLast = false,
+  }) {
     final theme = TuiTheme.of(context);
-    final role = content.role == 'user' ? 'You' : 'Model';
-    final color = content.role == 'user' ? theme.primary : theme.secondary;
+    final isModel = content.role != 'user';
+    final role = isModel ? 'Model' : 'You';
+    final color = isModel ? theme.secondary : theme.primary;
+    final isStreaming = isLast && isModel && component.client.isStreaming.value;
     return Container(
       padding: EdgeInsets.zero,
       child: Row(
@@ -210,6 +218,10 @@ class _ChatViewState extends State<ChatView> {
               style: TextStyle(color: theme.onSurface),
             ),
           ),
+          if (isStreaming) ...[
+            const SizedBox(width: 1),
+            Spinner(color: color),
+          ],
         ],
       ),
     );
