@@ -14,6 +14,7 @@ dependencies:
   dart_mcp: ^0.4.0
   glob: ^2.1.2
   google_cloud_ai_generativelanguage_v1beta: ^0.4.0
+  intl: ^0.20.2
   nocterm: ^0.5.1
   path: ^1.9.1
   stream_channel: ^2.1.4

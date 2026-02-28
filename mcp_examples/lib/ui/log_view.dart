@@ -1,6 +1,8 @@
+import 'dart:async';
+import 'package:intl/intl.dart';
 import 'package:mcp_examples/buffered_logger.dart';
 import 'package:mcp_examples/ui/collapsible_view.dart';
-import 'package:nocterm/nocterm.dart';
+import 'package:nocterm/nocterm.dart' hide LogEntry;
 
 class LogView extends StatefulComponent {
   final BufferedLogger logger;
@@ -51,7 +53,15 @@ class _LogViewState extends State<LogView> {
         final entry = component.logger.logEntries[index];
         final label = _getLabel(entry.level);
         final color = _getColor(entry.level, theme);
-        
+
+        if (entry.level == LogLevel.progress) {
+          return _ProgressLogItem(
+            entry: entry,
+            color: color,
+            logger: component.logger,
+          );
+        }
+
         // Take first 60 chars for title
         String title = entry.message.trim();
         if (title.length > 60) {
@@ -93,5 +103,89 @@ class _LogViewState extends State<LogView> {
       case LogLevel.trace:
         return theme.secondary;
     }
+  }
+}
+
+class _ProgressLogItem extends StatefulComponent {
+  final LogEntry entry;
+  final Color color;
+  final BufferedLogger logger;
+
+  _ProgressLogItem({
+    required this.entry,
+    required this.color,
+    required this.logger,
+  });
+
+  @override
+  State<_ProgressLogItem> createState() => _ProgressLogItemState();
+}
+
+class _ProgressLogItemState extends State<_ProgressLogItem> {
+  Timer? _timer;
+
+  @override
+  void initState() {
+    super.initState();
+    if (!component.entry.isFinished && !component.entry.isCancelled) {
+      _timer = Timer.periodic(const Duration(milliseconds: 100), (_) {
+        setState(() {});
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  static const _frames = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
+
+  @override
+  Component build(BuildContext context) {
+    final theme = TuiTheme.of(context);
+    final entry = component.entry;
+    final isActive = !entry.isFinished && !entry.isCancelled;
+
+    if (!isActive) {
+      _timer?.cancel();
+      _timer = null;
+    }
+
+    final spinnerFrame =
+        isActive
+            ? _frames[(DateTime.now().millisecondsSinceEpoch ~/ 100) %
+                _frames.length]
+            : '';
+
+    return Container(
+      decoration: BoxDecoration(border: BoxBorder.all(color: theme.outline)),
+      padding: const EdgeInsets.symmetric(horizontal: 1),
+      child: Row(
+        children: [
+          if (isActive)
+            Text('$spinnerFrame ', style: TextStyle(color: component.color)),
+          Text(
+            'PROGRESS: ',
+            style: TextStyle(
+              color: component.color,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          Expanded(
+            child: Text(
+              entry.displayMessage,
+              style: TextStyle(color: component.color),
+            ),
+          ),
+          if (isActive)
+            Text(
+              ' [${DateFormat('mm:ss').format(DateTime.fromMillisecondsSinceEpoch(DateTime.now().difference(entry.timestamp).inMilliseconds))}]',
+              style: TextStyle(color: theme.outline),
+            ),
+        ],
+      ),
+    );
   }
 }

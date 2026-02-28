@@ -20,11 +20,24 @@ class ValueNotifier<T> extends ChangeNotifier implements ValueListenable<T> {
 enum LogLevel { stdout, stderr, progress, trace }
 
 class LogEntry {
-  final String message;
+  String message;
   final LogLevel level;
   final DateTime timestamp;
+  bool isFinished = false;
+  bool isCancelled = false;
+  String? finishMessage;
 
   LogEntry(this.message, this.level) : timestamp = DateTime.now();
+
+  String get displayMessage {
+    if (isFinished) {
+      return '$message ${finishMessage != null ? '- $finishMessage' : '(finished)'}';
+    }
+    if (isCancelled) {
+      return '$message (cancelled)';
+    }
+    return message;
+  }
 }
 
 class BufferedLogger implements cli.Logger {
@@ -38,10 +51,14 @@ class BufferedLogger implements cli.Logger {
     unreadCount.value = 0;
   }
 
-  void _addLog(String message, LogLevel level) {
+  void notifyUpdate() {
+    _updateController.add(null);
+  }
+
+  LogEntry _addLog(String message, LogLevel level) {
     final entry = LogEntry(message, level);
     logEntries.add(entry);
-    
+
     // Maintain the old string-based list for compatibility
     String prefix = '';
     switch (level) {
@@ -55,9 +72,10 @@ class BufferedLogger implements cli.Logger {
         prefix = '';
     }
     logs.add('$prefix$message');
-    
+
     unreadCount.value++;
     _updateController.add(null);
+    return entry;
   }
 
   @override
@@ -71,8 +89,8 @@ class BufferedLogger implements cli.Logger {
 
   @override
   cli.Progress progress(String message) {
-    _addLog(message, LogLevel.progress);
-    return _BufferedProgress(this, message);
+    final entry = _addLog(message, LogLevel.progress);
+    return _BufferedProgress(this, entry, message);
   }
 
   @override
@@ -103,10 +121,11 @@ class BufferedLogger implements cli.Logger {
 
 class _BufferedProgress implements cli.Progress {
   final BufferedLogger logger;
+  final LogEntry entry;
   final String initialMessage;
   final Stopwatch _stopwatch = Stopwatch()..start();
 
-  _BufferedProgress(this.logger, this.initialMessage);
+  _BufferedProgress(this.logger, this.entry, this.initialMessage);
 
   @override
   Duration get elapsed => _stopwatch.elapsed;
@@ -117,15 +136,22 @@ class _BufferedProgress implements cli.Progress {
   @override
   void cancel() {
     _stopwatch.stop();
-    logger._addLog(initialMessage, LogLevel.progress); // Mark cancellation
+    entry.isCancelled = true;
+    logger.notifyUpdate();
   }
 
   @override
   void finish({String? message, bool showTiming = false}) {
     _stopwatch.stop();
-    logger._addLog(
-      '$initialMessage ${message != null ? '- $message' : ''}',
-      LogLevel.progress,
-    );
+    entry.isFinished = true;
+    entry.finishMessage = message;
+    if (showTiming) {
+      final timing = '(${elapsed.inMilliseconds}ms)';
+      entry.finishMessage =
+          entry.finishMessage != null
+              ? '${entry.finishMessage} $timing'
+              : timing;
+    }
+    logger.notifyUpdate();
   }
 }
