@@ -10,11 +10,14 @@ dependencies:
   args: ^2.7.0
   async: ^2.13.0
   cli_util: ^0.4.2
+  collection: ^1.19.0
   dart_mcp: ^0.4.0
+  glob: ^2.1.2
   google_cloud_ai_generativelanguage_v1beta: ^0.4.0
   nocterm: ^0.5.1
   path: ^1.9.1
   stream_channel: ^2.1.4
+  yaml: ^3.1.2
 
 dependency_overrides:
   dart_mcp:

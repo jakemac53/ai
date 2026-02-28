@@ -1,3 +1,7 @@
+// Copyright (c) 2026, the Dart project authors.  Please see the AUTHORS file
+// for details. All rights reserved. Use of this source code is governed by a
+// BSD-style license that can be found in the LICENSE file.
+
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
@@ -12,6 +16,7 @@ import 'package:googleapis_auth/auth_io.dart' as auth;
 import 'package:http/http.dart' as http;
 
 import 'buffered_logger.dart';
+import 'skills.dart';
 
 final class WorkflowClient extends MCPClient
     with RootsSupport, ElicitationFormSupport {
@@ -27,6 +32,7 @@ final class WorkflowClient extends MCPClient
   }) : modelName = model.startsWith('models/') ? model : 'models/$model',
        _client = auth.clientViaApiKey(geminiApiKey),
        stdinQueue = StreamQueue(_inputController.stream),
+       _skillLoader = SkillLoader(logger: logger),
        super(Implementation(name: 'Gemini workflow client', version: '0.1.0')) {
     api = gemini.GenerativeService(client: _client);
     logSink = _createLogSink(logFile);
@@ -77,6 +83,7 @@ final class WorkflowClient extends MCPClient
   }
 
   final BufferedLogger logger;
+  final SkillLoader _skillLoader;
   Sink<String>? logSink;
   final ValueNotifier<int> totalInputTokens = ValueNotifier(0);
   final ValueNotifier<int> totalOutputTokens = ValueNotifier(0);
@@ -105,6 +112,7 @@ final class WorkflowClient extends MCPClient
 
   final ValueNotifier<List<Prompt>> availablePrompts = ValueNotifier([]);
   final ValueNotifier<List<Resource>> availableResources = ValueNotifier([]);
+  final ValueNotifier<List<Skill>> availableSkills = ValueNotifier([]);
 
   late final gemini.GenerativeService api;
   final http.Client _client;
@@ -119,6 +127,7 @@ final class WorkflowClient extends MCPClient
       'If a user asks for code that requires adding or removing a dependency, you have several tools available to you for managing pub dependencies.',
       'If a user asks for code that requires writing to files, only edit the part of the file that is required. After you apply the edit, the file should contain all of the contents it did before with the changes you made applied. After editing files, always fix any errors and perform a hot reload to apply the changes.',
       'When a user asks you to complete a non-trivial task (such as any coding related task), you must start a new workflow by calling `start_workflow`. Then, you should develop a plan with the user, which may involve multiple steps and the use of tools available to you. Report this plan back to the user before proceeding and ask for approval before proceeding.',
+      'You have "Skills" available for assisting with various tasks. Use `read_skill` to read the instructions for a specific skill.',
     ];
     return gemini.Content(
       parts: [gemini.Part(text: instructions.join('\n\n'))],
@@ -171,6 +180,7 @@ final class WorkflowClient extends MCPClient
     final serverTools = await _listServerCapabilities();
     await _fetchPrompts();
     await _fetchResources();
+    await _fetchSkills();
 
     _chatHistory.add(
       gemini.Content(
@@ -182,6 +192,12 @@ final class WorkflowClient extends MCPClient
                   '<resource uri="${resource.uri}" name="${resource.name}">${resource.description}</resource>',
             ),
           gemini.Part(text: '</resource-list>'),
+          gemini.Part(text: '<skill-list>'),
+          for (final skill in availableSkills.value)
+            gemini.Part(
+              text: '<skill name="${skill.name}">${skill.description}</skill>',
+            ),
+          gemini.Part(text: '</skill-list>'),
         ],
         role: 'user',
       ),
@@ -438,6 +454,20 @@ final class WorkflowClient extends MCPClient
               output = sb.toString();
             }
           }
+        case 'read_skill':
+          final name = functionCall.args?.fields['name']?.stringValue;
+          if (name == null) {
+            output = 'Error: name argument is required';
+          } else {
+            try {
+              final skill = availableSkills.value.firstWhere(
+                (s) => s.name == name,
+              );
+              output = await File(skill.path).readAsString();
+            } catch (e) {
+              output = 'Error: Skill "$name" not found';
+            }
+          }
         default:
           output = 'Unknown internal tool ${functionCall.name}';
       }
@@ -642,6 +672,25 @@ final class WorkflowClient extends MCPClient
       connectionForFunction['read_resource'] = null;
     }
 
+    functions.add(
+      gemini.FunctionDeclaration(
+        name: 'read_skill',
+        description:
+            'Reads the instructions and details of a specific agent skill by its name.',
+        parameters: gemini.Schema(
+          type: gemini.Type.object,
+          properties: {
+            'name': gemini.Schema(
+              type: gemini.Type.string,
+              description: 'The name of the skill to read.',
+            ),
+          },
+          required: ['name'],
+        ),
+      ),
+    );
+    connectionForFunction['read_skill'] = null;
+
     return functions.isEmpty
         ? []
         : [gemini.Tool(functionDeclarations: functions)];
@@ -675,6 +724,10 @@ final class WorkflowClient extends MCPClient
       }
     }
     availableResources.value = resources;
+  }
+
+  Future<void> _fetchSkills() async {
+    availableSkills.value = await _skillLoader.load();
   }
 
   Future<void> usePrompt(Prompt prompt, Map<String, String>? arguments) async {
