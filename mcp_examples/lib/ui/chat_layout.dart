@@ -1,7 +1,7 @@
+import 'dart:async';
 import 'package:nocterm/nocterm.dart';
 import 'package:dart_mcp/client.dart';
 import 'package:mcp_examples/workflow_client.dart';
-import 'package:mcp_examples/buffered_logger.dart';
 import 'package:mcp_examples/ui/chat_view.dart';
 import 'package:mcp_examples/ui/log_view.dart';
 import 'package:mcp_examples/ui/mcp_view.dart';
@@ -17,14 +17,12 @@ import 'package:google_cloud_protobuf/protobuf.dart' as pb;
 
 class ChatLayout extends StatefulComponent {
   final WorkflowClient client;
-  final BufferedLogger logger;
   final bool isDark;
   final VoidCallback onThemeToggle;
 
   const ChatLayout({
     super.key,
     required this.client,
-    required this.logger,
     required this.isDark,
     required this.onThemeToggle,
   });
@@ -37,6 +35,7 @@ class _ChatLayoutState extends State<ChatLayout> {
   int _activeTabIndex = 0;
   final ScrollController _chatScrollController = ScrollController();
   final TextEditingController _inputController = TextEditingController();
+  final List<StreamSubscription> _loggerSubscriptions = [];
 
   // Prompt autocomplete state
   bool _isPromptMode = false;
@@ -52,9 +51,9 @@ class _ChatLayoutState extends State<ChatLayout> {
   @override
   void initState() {
     super.initState();
-    component.logger.onUpdate.listen((_) {
-      if (mounted) setState(() {});
-    });
+    _listenToLoggers();
+    component.client.loggers.addListener(_onLoggersChanged);
+    component.client.activeLoggerIndex.addListener(_onActiveLoggerChanged);
     component.client.onChatUpdate.listen((_) {
       if (mounted) setState(() {});
     });
@@ -84,6 +83,11 @@ class _ChatLayoutState extends State<ChatLayout> {
     component.client.activePromptElicitation.removeListener(
       _onElicitationChanged,
     );
+    component.client.loggers.removeListener(_onLoggersChanged);
+    component.client.activeLoggerIndex.removeListener(_onActiveLoggerChanged);
+    for (var sub in _loggerSubscriptions) {
+      sub.cancel();
+    }
     component.client.showThoughts.removeListener(_onSettingsChanged);
     component.client.modelName.removeListener(_onSettingsChanged);
     super.dispose();
@@ -165,6 +169,30 @@ class _ChatLayoutState extends State<ChatLayout> {
     if (mounted) setState(() {});
   }
 
+  void _onLoggersChanged() {
+    _listenToLoggers();
+    if (mounted) setState(() {});
+  }
+
+  void _onActiveLoggerChanged() {
+    if (mounted) setState(() {});
+  }
+
+  void _listenToLoggers() {
+    for (var sub in _loggerSubscriptions) {
+      sub.cancel();
+    }
+    _loggerSubscriptions.clear();
+
+    for (var logger in component.client.loggers.value) {
+      _loggerSubscriptions.add(
+        logger.onUpdate.listen((_) {
+          if (mounted) setState(() {});
+        }),
+      );
+    }
+  }
+
   List<Prompt> get _filteredPrompts {
     final allPrompts = component.client.availablePrompts.value;
     if (_promptQuery.isEmpty) return allPrompts;
@@ -176,7 +204,10 @@ class _ChatLayoutState extends State<ChatLayout> {
 
   @override
   Component build(BuildContext context) {
-    final unreadCount = component.logger.unreadCount.value;
+    var unreadCount = 0;
+    for (var logger in component.client.loggers.value) {
+      unreadCount += logger.unreadCount.value;
+    }
     final logTabTitle = 'Logs${unreadCount > 0 ? ' ($unreadCount)' : ''}';
     final theme = TuiTheme.of(context);
 
@@ -284,9 +315,11 @@ class _ChatLayoutState extends State<ChatLayout> {
         );
       case 1:
         return LogView(
-          logger: component.logger,
+          loggers: component.client.loggers.value,
+          activeIndex: component.client.activeLoggerIndex,
           onActivated: () {
-            component.logger.markLogsRead();
+            component.client.loggers.value[component.client.activeLoggerIndex.value]
+                .markLogsRead();
           },
         );
       case 2:
@@ -306,7 +339,8 @@ class _ChatLayoutState extends State<ChatLayout> {
         setState(() {
           _activeTabIndex = index;
           if (index == 1) {
-            component.logger.markLogsRead();
+            component.client.loggers.value[component.client.activeLoggerIndex.value]
+                .markLogsRead();
           }
         });
       },

@@ -46,7 +46,7 @@ void main(List<String> args) {
     logFile: logFilePath != null ? File(logFilePath) : null,
   );
 
-  runApp(ClientApp(client: client, logger: logger));
+  runApp(ClientApp(client: client));
 }
 
 final argParser =

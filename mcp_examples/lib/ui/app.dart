@@ -1,14 +1,12 @@
 import 'package:nocterm/nocterm.dart';
-import 'package:mcp_examples/buffered_logger.dart';
 import 'package:mcp_examples/workflow_client.dart';
 
 import 'package:mcp_examples/ui/chat_layout.dart';
 
 class ClientApp extends StatefulComponent {
   final WorkflowClient client;
-  final BufferedLogger logger;
 
-  const ClientApp({super.key, required this.client, required this.logger});
+  const ClientApp({super.key, required this.client});
 
   @override
   State<ClientApp> createState() => _ClientAppState();
@@ -65,7 +63,6 @@ class _ClientAppState extends State<ClientApp> {
                 )
                 : ChatLayout(
                   client: component.client,
-                  logger: component.logger,
                   isDark: _isDark,
                   onThemeToggle: _toggleTheme,
                 ),

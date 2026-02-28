@@ -42,6 +42,7 @@ final class WorkflowClient extends MCPClient
        stdinQueue = StreamQueue(_inputController.stream),
        _skillLoader = SkillLoader(logger: logger),
        super(Implementation(name: 'Gemini workflow client', version: '0.1.0')) {
+    loggers.value = [logger];
     modelName = ValueNotifier(
       model.startsWith('models/') ? model : 'models/$model',
     );
@@ -94,6 +95,8 @@ final class WorkflowClient extends MCPClient
   }
 
   final BufferedLogger logger;
+  final ValueNotifier<List<BufferedLogger>> loggers = ValueNotifier([]);
+  final ValueNotifier<int> activeLoggerIndex = ValueNotifier(0);
   final SkillLoader _skillLoader;
   Sink<String>? logSink;
   final ValueNotifier<int> totalInputTokens = ValueNotifier(0);
@@ -128,6 +131,7 @@ final class WorkflowClient extends MCPClient
   final ValueNotifier<List<Prompt>> availablePrompts = ValueNotifier([]);
   final ValueNotifier<List<Resource>> availableResources = ValueNotifier([]);
   final ValueNotifier<List<Skill>> availableSkills = ValueNotifier([]);
+  final Map<ServerConnection, ValueNotifier<LoggingLevel>> serverLogLevels = {};
 
   late final gemini.GenerativeService api;
   final http.Client _client;
@@ -685,19 +689,42 @@ final class WorkflowClient extends MCPClient
         continue;
       }
 
+      final serverName = connection.serverInfo?.name ?? 'Server';
+      final serverLogger = BufferedLogger(name: serverName);
+      loggers.value = [...loggers.value, serverLogger];
+
+      final initialLevel = verbose ? LoggingLevel.debug : LoggingLevel.warning;
+      serverLogLevels[connection] = ValueNotifier(initialLevel);
+
       connection.setLogLevel(
         SetLevelRequest(
-          level: verbose ? LoggingLevel.debug : LoggingLevel.warning,
+          level: initialLevel,
         ),
       );
       connection.onLog.listen((event) {
-        final logServerName = connection.serverInfo?.name ?? '?';
-        logger.stdout(
-          'Server Log ($logServerName/${event.level.name}): '
-          '${event.level.name != 'info' ? '[${event.logger}] ' : ''}${event.data}',
-        );
+        final prefix = event.logger != null ? '[${event.logger}] ' : '';
+        final message = '$prefix${event.data}';
+
+        switch (event.level) {
+          case LoggingLevel.debug:
+          case LoggingLevel.info:
+            serverLogger.stdout(message);
+          case LoggingLevel.notice:
+          case LoggingLevel.warning:
+            serverLogger.stdout('WARNING: $message');
+          case LoggingLevel.error:
+          case LoggingLevel.critical:
+          case LoggingLevel.alert:
+          case LoggingLevel.emergency:
+            serverLogger.stderr(message);
+        }
       });
     }
+  }
+
+  void setServerLogLevel(ServerConnection connection, LoggingLevel level) {
+    serverLogLevels[connection]?.value = level;
+    connection.setLogLevel(SetLevelRequest(level: level));
   }
 
   /// Lists all the tools available the [serverConnections].

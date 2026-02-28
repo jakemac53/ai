@@ -91,27 +91,60 @@ class _McpViewState extends State<McpView> {
       final version = connection.serverInfo?.version ?? '?.?.?';
       final isServerExpanded = _expandedServers.contains(connection);
 
+      final supportsLogging = connection.serverCapabilities.logging != null;
+
       children.add(
-        GestureDetector(
-          onTap: () {
-            setState(() {
-              if (isServerExpanded) {
-                _expandedServers.remove(connection);
-              } else {
-                _expandedServers.add(connection);
-              }
-            });
-          },
-          child: Padding(
-            padding: const EdgeInsets.only(bottom: 1),
-            child: Text(
-              '${isServerExpanded ? "▼" : "▶"} $serverName (v$version)',
-              style: TextStyle(
-                fontWeight: FontWeight.bold,
-                color: theme.primary,
+        Row(
+          children: [
+            GestureDetector(
+              onTap: () {
+                setState(() {
+                  if (isServerExpanded) {
+                    _expandedServers.remove(connection);
+                  } else {
+                    _expandedServers.add(connection);
+                  }
+                });
+              },
+              child: Padding(
+                padding: const EdgeInsets.only(bottom: 1),
+                child: Text(
+                  '${isServerExpanded ? "▼" : "▶"} $serverName (v$version)',
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    color: theme.primary,
+                  ),
+                ),
               ),
             ),
-          ),
+            if (supportsLogging) ...[
+              const Spacer(),
+              const Text('Log Level: '),
+              GestureDetector(
+                onTap: () {
+                  final levels = LoggingLevel.values;
+                  final current =
+                      component.client.serverLogLevels[connection]?.value ??
+                      LoggingLevel.info;
+                  final nextIndex = (current.index + 1) % levels.length;
+                  final next = levels[nextIndex];
+                  component.client.setServerLogLevel(connection, next);
+                  setState(() {});
+                },
+                child: Container(
+                  decoration: BoxDecoration(
+                    border: BoxBorder.all(color: theme.outline),
+                  ),
+                  padding: const EdgeInsets.symmetric(horizontal: 1),
+                  child: Text(
+                    component.client.serverLogLevels[connection]?.value.name ??
+                        '?',
+                    style: TextStyle(color: theme.warning),
+                  ),
+                ),
+              ),
+            ],
+          ],
         ),
       );
 

@@ -41,11 +41,14 @@ class LogEntry {
 }
 
 class BufferedLogger implements cli.Logger {
+  final String name;
   final List<LogEntry> logEntries = [];
   final List<String> logs = []; // Maintain for compatibility if needed
   final ValueNotifier<int> unreadCount = ValueNotifier(0);
   final StreamController<void> _updateController = StreamController.broadcast();
   Stream<void> get onUpdate => _updateController.stream;
+
+  BufferedLogger({this.name = 'Chat'});
 
   void markLogsRead() {
     unreadCount.value = 0;
