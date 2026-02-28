@@ -7,6 +7,7 @@ import 'package:google_cloud_ai_generativelanguage_v1beta/generativelanguage.dar
 import 'package:mcp_examples/workflow_client.dart';
 import 'package:mcp_examples/ui/draggable_scrollbar.dart';
 import 'package:mcp_examples/ui/resource_view.dart';
+import 'package:mcp_examples/ui/skill_view.dart';
 
 class ChatView extends StatefulComponent {
   final WorkflowClient client;
@@ -36,6 +37,12 @@ class _ResourceItem extends _ChatDisplayItem {
   final String? name;
   final String contents;
   _ResourceItem({required this.uri, this.name, required this.contents});
+}
+class _SkillItem extends _ChatDisplayItem {
+  final String name;
+  final String path;
+  final String contents;
+  _SkillItem({required this.name, required this.path, required this.contents});
 }
 
 class _ChatViewState extends State<ChatView> {
@@ -99,6 +106,24 @@ class _ChatViewState extends State<ChatView> {
           }
         }
 
+        // Check if this is a read_skill call and handle it specially.
+        if (call.name == 'read_skill' && response != null) {
+          try {
+            final output =
+                response.response?.fields['output']?.stringValue ?? '';
+            items.add(
+              _SkillItem(
+                name: call.args?.fields['name']?.stringValue ?? '',
+                path: '', // Path isn't strictly needed for display but could be added if we return it in output
+                contents: output,
+              ),
+            );
+            continue; // Skip adding the default function group item.
+          } catch (e) {
+            // Not a valid read_skill call, fall through to default handling.
+          }
+        }
+
         items.add(_FunctionGroupItem(call, response));
       } else {
         items.add(_ContentItem(content));
@@ -138,6 +163,8 @@ class _ChatViewState extends State<ChatView> {
                   return _buildFunctionGroupWidget(context, index, item);
                 } else if (item is _ResourceItem) {
                   return _buildResourceWidget(context, item);
+                } else if (item is _SkillItem) {
+                  return _buildSkillWidget(context, item);
                 }
                 return const SizedBox();
               },
@@ -264,6 +291,14 @@ class _ChatViewState extends State<ChatView> {
     return ResourceView(
       uri: item.uri,
       name: item.name,
+      contents: item.contents,
+    );
+  }
+
+  Component _buildSkillWidget(BuildContext context, _SkillItem item) {
+    return SkillView(
+      name: item.name,
+      path: item.path,
       contents: item.contents,
     );
   }
