@@ -49,6 +49,7 @@ class _SkillItem extends _ChatDisplayItem {
 class _ChatViewState extends State<ChatView> {
   bool _shouldScrollToBottom = false;
   final Set<int> _expandedFunctionGroups = {};
+  final Set<int> _expandedThoughts = {};
 
   @override
   void initState() {
@@ -202,18 +203,58 @@ class _ChatViewState extends State<ChatView> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 if (isModel) ...[
-                  for (final thoughtPart in content.parts.where((p) => p.thought))
-                    Container(
-                      padding: const EdgeInsets.symmetric(vertical: 0),
-                      child: Text(
-                        'Thought: ${thoughtPart.text ?? ''}',
-                        softWrap: true,
-                        style: TextStyle(
-                          color: theme.outline,
-                          fontStyle: FontStyle.italic,
-                        ),
-                      ),
+                  if (content.parts.any((p) => p.thought)) ...[
+                    Builder(
+                      builder: (context) {
+                        final id = identityHashCode(content);
+                        final isActivelyThinking =
+                            isStreaming &&
+                            content.parts.any((p) => p.thought && p.text != null);
+                        final isExpanded =
+                            _expandedThoughts.contains(id) || isActivelyThinking;
+
+                        return Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            GestureDetector(
+                              onTap: () {
+                                setState(() {
+                                  if (isExpanded) {
+                                    _expandedThoughts.remove(id);
+                                  } else {
+                                    _expandedThoughts.add(id);
+                                  }
+                                });
+                              },
+                              child: Text(
+                                isExpanded ? ' [Thought ▽]' : ' [Thought ▷]',
+                                style: TextStyle(
+                                  color: theme.outline,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ),
+                            if (isExpanded)
+                              for (final thoughtPart in content.parts.where(
+                                (p) => p.thought,
+                              ))
+                                Container(
+                                  padding: const EdgeInsets.only(left: 2),
+                                  child: Text(
+                                    thoughtPart.text ?? '',
+                                    softWrap: true,
+                                    style: TextStyle(
+                                      color: theme.outline,
+                                      fontStyle: FontStyle.italic,
+                                    ),
+                                  ),
+                                ),
+                            const SizedBox(height: 1),
+                          ],
+                        );
+                      },
                     ),
+                  ],
                 ],
                 Text(
                   content.parts
