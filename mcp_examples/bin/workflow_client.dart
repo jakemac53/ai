@@ -12,6 +12,7 @@ import 'package:mcp_examples/skills.dart';
 import 'package:nocterm/nocterm.dart';
 
 import 'package:mcp_examples/buffered_logger.dart';
+import 'package:mcp_examples/mcp_server_manager.dart';
 import 'package:mcp_examples/workflow_client.dart';
 
 import '../lib/ui/app.dart';
@@ -41,7 +42,7 @@ void main(List<String> args) {
   final logFilePath = parsedArgs.option('log');
 
   final client = WorkflowClient(
-    serverCommands,
+    StdioMcpServerManager(serverCommands, logger: logger),
     api: GenerativeServiceWrapper(
       gemini.GenerativeService.fromApiKey(geminiApiKey),
     ),

@@ -4,6 +4,7 @@
 
 import 'package:mcp_examples/workflow_client.dart';
 import 'package:mcp_examples/buffered_logger.dart';
+import 'package:mcp_examples/mcp_server_manager.dart';
 
 import 'fake_generative_service.dart';
 import 'fake_skill_loader.dart';
@@ -13,7 +14,7 @@ import 'fake_skill_loader.dart';
 base class TestWorkflowClient extends WorkflowClient {
   TestWorkflowClient()
     : super(
-        [],
+        FakeMcpServerManager(),
         api: FakeGenerativeService(),
         model: '',
         logger: BufferedLogger(name: 'fake'),

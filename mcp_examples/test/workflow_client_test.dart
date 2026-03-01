@@ -4,11 +4,26 @@
 
 import 'dart:async';
 
+import 'package:dart_mcp/server.dart';
 import 'package:mcp_examples/workflow_client.dart';
 import 'package:mcp_examples/buffered_logger.dart';
+import 'package:mcp_examples/mcp_server_manager.dart';
 import 'package:test/test.dart';
 import 'shared/fake_generative_service.dart';
 import 'shared/fake_skill_loader.dart';
+
+final class TestMcpServer extends MCPServer
+    with
+        ToolsSupport,
+        ResourcesSupport,
+        PromptsSupport,
+        LoggingSupport,
+        ElicitationRequestSupport {
+  TestMcpServer(super.channel)
+    : super.fromStreamChannel(
+        implementation: Implementation(name: 'test-server', version: '1.0.0'),
+      );
+}
 
 void main() {
   group('WorkflowClient logic', () {
@@ -16,13 +31,15 @@ void main() {
     late WorkflowClient client;
     late BufferedLogger logger;
     late FakeSkillLoader fakeSkillLoader;
+    late FakeMcpServerManager fakeMcpServerManager;
 
     setUp(() {
+      fakeMcpServerManager = FakeMcpServerManager();
       fakeApi = FakeGenerativeService();
       logger = BufferedLogger(name: 'test');
       fakeSkillLoader = FakeSkillLoader();
       client = WorkflowClient(
-        [], // no server commands
+        fakeMcpServerManager,
         api: fakeApi,
         model: 'gemini-pro',
         logger: logger,
@@ -158,6 +175,170 @@ void main() {
       expect(internalTools, contains('read_resource'));
       expect(internalTools, contains('start_workflow'));
       expect(internalTools, contains('stop_workflow'));
+    });
+
+    test('MCP tools are discovered and can be called', () async {
+      fakeMcpServerManager.serverFactories.add((channel) async {
+        final server = TestMcpServer(channel);
+        server.registerTool(
+          Tool(
+            name: 'mcp_tool',
+            description: 'An MCP tool',
+            inputSchema: ObjectSchema(properties: {}),
+          ),
+          (request) async =>
+              CallToolResult(content: [Content.text(text: 'MCP Result')]),
+        );
+        return server;
+      });
+
+      client.startChat();
+
+      // 1. Check tool discovery in the first API request
+      final request1 = await fakeApi.nextRequest;
+      final tools = request1.tools;
+      expect(
+        tools.any(
+          (t) =>
+              t.functionDeclarations.any((f) => f.name == 'mcp_tool') == true,
+        ),
+        isTrue,
+        reason: 'The mcp_tool should be discovered and sent to Gemini',
+      );
+
+      fakeApi.sendTextResponse('Initialization done.');
+      fakeApi.closeRequest();
+      await _waitForReady(client);
+
+      // 2. Simulate Gemini calling the MCP tool
+      client.submitInput('Call the mcp tool');
+      await fakeApi.nextRequest;
+      fakeApi.sendFunctionCall('mcp_tool', {});
+      fakeApi.closeRequest();
+
+      // 3. Verify the client sends the tool result back to Gemini
+      final request3 = await fakeApi.nextRequest;
+      expect(
+        request3.contents.any(
+          (c) => c.parts.any(
+            (p) =>
+                p.functionResponse?.name == 'mcp_tool' &&
+                p.functionResponse?.response?.fields['output']?.stringValue ==
+                    'MCP Result\n',
+          ),
+        ),
+        isTrue,
+        reason: 'The result of the MCP tool should be sent back to Gemini',
+      );
+    });
+
+    test('MCP resources are discovered and can be read', () async {
+      fakeMcpServerManager.serverFactories.add((channel) async {
+        final server = TestMcpServer(channel);
+        server.addResource(
+          Resource(
+            uri: 'test://resource',
+            name: 'Test Resource',
+            description: 'A test resource',
+            mimeType: 'text/plain',
+          ),
+          (request) async => ReadResourceResult(
+            contents: [
+              TextResourceContents(
+                text: 'Resource Content',
+                uri: 'test://resource',
+              ),
+            ],
+          ),
+        );
+        return server;
+      });
+
+      client.startChat();
+
+      await fakeApi.nextRequest;
+      fakeApi.sendTextResponse('Initialization done.');
+      fakeApi.closeRequest();
+      await _waitForReady(client);
+
+      // 1. Test list_resources internal tool
+      client.submitInput('List resources');
+      await fakeApi.nextRequest;
+      fakeApi.sendFunctionCall('list_resources', {});
+      fakeApi.closeRequest();
+
+      final request2 = await fakeApi.nextRequest;
+      final resourcesPart = request2.contents
+          .expand((c) => c.parts)
+          .firstWhere((p) => p.functionResponse?.name == 'list_resources');
+      final resourcesJson =
+          resourcesPart
+              .functionResponse!
+              .response
+              ?.fields['output']
+              ?.stringValue;
+      expect(resourcesJson, contains('Test Resource'));
+      fakeApi.sendTextResponse('I got all the resources');
+      fakeApi.closeRequest();
+
+      // 2. Test read_resource internal tool
+      client.submitInput('Read the test://resource resource');
+      await fakeApi.nextRequest;
+      fakeApi.sendFunctionCall('read_resource', {'uri': 'test://resource'});
+      fakeApi.closeRequest();
+
+      final request3 = await fakeApi.nextRequest;
+      final readResourcePart = request3.contents
+          .expand((c) => c.parts)
+          .firstWhere((p) => p.functionResponse?.name == 'read_resource');
+      final resourceContent =
+          readResourcePart
+              .functionResponse!
+              .response
+              ?.fields['output']
+              ?.stringValue;
+      expect(resourceContent, contains('Resource Content'));
+      fakeApi.sendTextResponse('I read the resource');
+      fakeApi.closeRequest();
+    });
+
+    test('MCP prompts are discovered', () async {
+      fakeMcpServerManager.serverFactories.add((channel) async {
+        final server = TestMcpServer(channel);
+        server.addPrompt(
+          Prompt(
+            name: 'test_prompt',
+            description: 'A test prompt',
+            arguments: [
+              PromptArgument(
+                name: 'arg1',
+                description: 'Argument 1',
+                required: true,
+              ),
+            ],
+          ),
+          (request) async => GetPromptResult(
+            description: 'Test Prompt Result',
+            messages: [
+              PromptMessage(
+                role: Role.user,
+                content: TextContent(text: 'Prompt text'),
+              ),
+            ],
+          ),
+        );
+        return server;
+      });
+
+      client.startChat();
+
+      await fakeApi.nextRequest;
+      fakeApi.sendTextResponse('Initialization done.');
+      fakeApi.closeRequest();
+      await _waitForReady(client);
+
+      expect(client.availablePrompts.value.length, 1);
+      expect(client.availablePrompts.value.first.name, 'test_prompt');
     });
   });
 }

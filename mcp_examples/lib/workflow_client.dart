@@ -9,13 +9,13 @@ import 'dart:io';
 import 'package:async/async.dart';
 import 'package:collection/collection.dart';
 import 'package:dart_mcp/client.dart';
-import 'package:dart_mcp/stdio.dart';
 import 'package:google_cloud_ai_generativelanguage_v1beta/generativelanguage.dart'
     as gemini;
 import 'package:google_cloud_protobuf/protobuf.dart' as pb;
 
 import 'buffered_logger.dart';
 import 'generative_service_wrapper.dart';
+import 'mcp_server_manager.dart';
 import 'skills.dart';
 
 base class WorkflowClient extends MCPClient
@@ -29,7 +29,7 @@ base class WorkflowClient extends MCPClient
   ];
 
   WorkflowClient(
-    this.serverCommands, {
+    this.mcpServerManager, {
     required this.api,
     required String model,
     required this.logger,
@@ -111,7 +111,7 @@ base class WorkflowClient extends MCPClient
 
   final ValueNotifier<bool> showThoughts = ValueNotifier(true);
   final StreamQueue<String> stdinQueue;
-  final List<String> serverCommands;
+  final McpServerManager mcpServerManager;
   final List<ServerConnection> serverConnections = [];
   final Map<String, ServerConnection?> connectionForFunction = {};
   final Map<String, ServerConnection> connectionForPrompt = {};
@@ -193,9 +193,7 @@ base class WorkflowClient extends MCPClient
   }
 
   void startChat() async {
-    if (serverCommands.isNotEmpty) {
-      await _connectToServers();
-    }
+    await _connectToServers();
     await _initializeServers();
     _listenToLogs();
     final serverTools = await _listServerCapabilities();
@@ -647,24 +645,13 @@ base class WorkflowClient extends MCPClient
     _chatUpdateController.add(null);
   }
 
-  /// Connects to all servers using [serverCommands].
+  /// Connects to all servers using [mcpServerManager].
   Future<void> _connectToServers() async {
-    for (var server in serverCommands) {
-      final parts = server.split(' ');
-      try {
-        final process = await Process.start(
-          parts.first,
-          parts.skip(1).toList(),
-        );
-        serverConnections.add(
-          connectServer(
-            stdioChannel(input: process.stdout, output: process.stdin),
-            protocolLogSink: logSink,
-          )..done.then((_) => process.kill()),
-        );
-      } catch (e) {
-        logger.stderr('Failed to connect to server $server: $e');
-      }
+    await for (final connection in mcpServerManager.startServers(
+      this,
+      protocolLogSink: logSink,
+    )) {
+      serverConnections.add(connection);
     }
   }
 
