@@ -17,9 +17,10 @@ import 'package:googleapis_auth/auth_io.dart' as auth;
 import 'package:http/http.dart' as http;
 
 import 'buffered_logger.dart';
+import 'generative_service_wrapper.dart';
 import 'skills.dart';
 
-final class WorkflowClient extends MCPClient
+base class WorkflowClient extends MCPClient
     with RootsSupport, ElicitationFormSupport {
   static const List<String> allowedGeminiModels = [
     'gemini-3-flash-preview',
@@ -31,22 +32,22 @@ final class WorkflowClient extends MCPClient
 
   WorkflowClient(
     this.serverCommands, {
-    required String geminiApiKey,
+    required this.api,
     required String model,
     required this.logger,
     String? dtdUri,
     this.verbose = false,
     this.persona,
     File? logFile,
-  }) : _client = auth.clientViaApiKey(geminiApiKey),
+    bool autoStart = true,
+    required this.skillLoader,
+  }) : 
        stdinQueue = StreamQueue(_inputController.stream),
-       _skillLoader = SkillLoader(logger: logger),
        super(Implementation(name: 'Gemini workflow client', version: '0.1.0')) {
     loggers.value = [logger];
     modelName = ValueNotifier(
       model.startsWith('models/') ? model : 'models/$model',
     );
-    api = gemini.GenerativeService(client: _client);
     logSink = _createLogSink(logFile);
     addRoot(
       Root(
@@ -82,7 +83,9 @@ final class WorkflowClient extends MCPClient
         ),
       );
     }
-    _startChat();
+    if (autoStart) {
+      startChat();
+    }
   }
 
   static final StreamController<String> _inputController =
@@ -97,7 +100,7 @@ final class WorkflowClient extends MCPClient
   final BufferedLogger logger;
   final ValueNotifier<List<BufferedLogger>> loggers = ValueNotifier([]);
   final ValueNotifier<int> activeLoggerIndex = ValueNotifier(0);
-  final SkillLoader _skillLoader;
+  final SkillLoader skillLoader;
   Sink<String>? logSink;
   final ValueNotifier<int> totalInputTokens = ValueNotifier(0);
   final ValueNotifier<int> totalOutputTokens = ValueNotifier(0);
@@ -134,8 +137,7 @@ final class WorkflowClient extends MCPClient
   final ValueNotifier<List<Skill>> availableSkills = ValueNotifier([]);
   final Map<ServerConnection, ValueNotifier<LoggingLevel>> serverLogLevels = {};
 
-  late final gemini.GenerativeService api;
-  final http.Client _client;
+  late final GenerativeServiceWrapper api;
   late final ValueNotifier<String> modelName;
   gemini.Content get systemInstruction {
     final instructions = [
@@ -159,6 +161,7 @@ final class WorkflowClient extends MCPClient
   final bool verbose;
 
   int? _taskStartIndex;
+  int? _uiTaskStartIndex;
 
   Sink<String>? _createLogSink(File? logFile) {
     if (logFile == null) {
@@ -191,7 +194,7 @@ final class WorkflowClient extends MCPClient
     return logSink;
   }
 
-  void _startChat() async {
+  void startChat() async {
     if (serverCommands.isNotEmpty) {
       await _connectToServers();
     }
@@ -494,7 +497,9 @@ final class WorkflowClient extends MCPClient
         role: 'model',
       );
       _chatHistory.add(callContent);
-      _uiChatHistory.add(callContent);
+      if (_taskStartIndex == null) {
+        _uiChatHistory.add(callContent);
+      }
       _chatUpdateController.add(null);
     }
 
@@ -510,14 +515,24 @@ final class WorkflowClient extends MCPClient
           } else {
             output = 'Workflow started';
             _taskStartIndex = _chatHistory.length;
+            _uiTaskStartIndex = _uiChatHistory.length;
           }
         case 'stop_workflow':
           if (_taskStartIndex == null) {
             output = 'Workflow not started, you must start one first';
           } else {
-            _chatHistory.removeRange(_taskStartIndex!, _chatHistory.length);
+            // Prune the UI history of the start_workflow call and any accidental leaks
+            if (_uiTaskStartIndex != null &&
+                _uiTaskStartIndex! < _uiChatHistory.length) {
+              _uiChatHistory.removeRange(
+                _uiTaskStartIndex!,
+                _uiChatHistory.length,
+              );
+            }
             output = functionCall.args?.fields['summary']?.stringValue ?? '';
+            _chatToUser(output);
             _taskStartIndex = null;
+            _uiTaskStartIndex = null;
           }
         case 'list_resources':
           final resources = <Resource>[];
@@ -628,7 +643,9 @@ final class WorkflowClient extends MCPClient
       role: 'user',
     );
     _chatHistory.add(responseContent);
-    _uiChatHistory.add(responseContent);
+    if (_taskStartIndex == null) {
+      _uiChatHistory.add(responseContent);
+    }
     _chatUpdateController.add(null);
   }
 
@@ -864,7 +881,7 @@ final class WorkflowClient extends MCPClient
   }
 
   Future<void> _fetchSkills() async {
-    availableSkills.value = await _skillLoader.load();
+    availableSkills.value = await skillLoader.load();
   }
 
   Future<void> usePrompt(Prompt prompt, Map<String, String>? arguments) async {

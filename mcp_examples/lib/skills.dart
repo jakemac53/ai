@@ -18,13 +18,18 @@ class Skill {
   Skill({required this.name, required this.description, required this.path});
 }
 
-class SkillLoader {
+abstract interface class SkillLoader {
+  Future<List<Skill>> load();
+}
+
+class RealSkillLoader implements SkillLoader {
   final Set<String> _seenPaths = {};
   final List<Skill> _skills = [];
   final BufferedLogger _logger;
 
-  SkillLoader({required BufferedLogger logger}) : _logger = logger;
+  RealSkillLoader({required BufferedLogger logger}) : _logger = logger;
 
+  @override
   Future<List<Skill>> load() async {
     _skills.clear();
     _seenPaths.clear();

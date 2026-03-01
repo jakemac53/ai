@@ -5,6 +5,10 @@
 import 'dart:io';
 
 import 'package:args/args.dart';
+import 'package:google_cloud_ai_generativelanguage_v1beta/generativelanguage.dart'
+    as gemini;
+import 'package:mcp_examples/generative_service_wrapper.dart';
+import 'package:mcp_examples/skills.dart';
 import 'package:nocterm/nocterm.dart';
 
 import 'package:mcp_examples/buffered_logger.dart';
@@ -38,12 +42,15 @@ void main(List<String> args) {
 
   final client = WorkflowClient(
     serverCommands,
-    geminiApiKey: geminiApiKey,
+    api: GenerativeServiceWrapper(
+      gemini.GenerativeService.fromApiKey(geminiApiKey),
+    ),
     verbose: parsedArgs.flag('verbose'),
     dtdUri: parsedArgs.option('dtd'),
     model: parsedArgs.option('model')!,
     logger: logger,
     logFile: logFilePath != null ? File(logFilePath) : null,
+    skillLoader: RealSkillLoader(logger: logger),
   );
 
   runApp(ClientApp(client: client));
