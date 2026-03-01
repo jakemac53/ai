@@ -5,25 +5,15 @@
 import 'dart:async';
 
 import 'package:dart_mcp/server.dart';
-import 'package:mcp_examples/workflow_client.dart';
 import 'package:mcp_examples/buffered_logger.dart';
 import 'package:mcp_examples/mcp_server_manager.dart';
+import 'package:mcp_examples/workflow_client.dart';
 import 'package:test/test.dart';
+
+import 'shared/extensions.dart';
 import 'shared/fake_generative_service.dart';
 import 'shared/fake_skill_loader.dart';
-
-final class TestMcpServer extends MCPServer
-    with
-        ToolsSupport,
-        ResourcesSupport,
-        PromptsSupport,
-        LoggingSupport,
-        ElicitationRequestSupport {
-  TestMcpServer(super.channel)
-    : super.fromStreamChannel(
-        implementation: Implementation(name: 'test-server', version: '1.0.0'),
-      );
-}
+import 'shared/test_mcp_server.dart';
 
 void main() {
   group('WorkflowClient logic', () {
@@ -113,7 +103,7 @@ void main() {
       await fakeApi.nextRequest;
       fakeApi.sendTextResponse('I am ready.');
       fakeApi.closeRequest();
-      await _waitForReady(client);
+      await client.ready;
 
       // 2. User starts a task
       client.submitInput('Perform complex task');
@@ -208,7 +198,7 @@ void main() {
 
       fakeApi.sendTextResponse('Initialization done.');
       fakeApi.closeRequest();
-      await _waitForReady(client);
+      await client.ready;
 
       // 2. Simulate Gemini calling the MCP tool
       client.submitInput('Call the mcp tool');
@@ -259,7 +249,7 @@ void main() {
       await fakeApi.nextRequest;
       fakeApi.sendTextResponse('Initialization done.');
       fakeApi.closeRequest();
-      await _waitForReady(client);
+      await client.ready;
 
       // 1. Test list_resources internal tool
       client.submitInput('List resources');
@@ -335,18 +325,10 @@ void main() {
       await fakeApi.nextRequest;
       fakeApi.sendTextResponse('Initialization done.');
       fakeApi.closeRequest();
-      await _waitForReady(client);
+      await client.ready;
 
       expect(client.availablePrompts.value.length, 1);
       expect(client.availablePrompts.value.first.name, 'test_prompt');
     });
   });
-}
-
-Future<void> _waitForReady(WorkflowClient client) async {
-  if (client.isReady.value) return;
-  final completer = Completer<void>();
-  client.isReady.addListener(completer.complete);
-  await completer.future;
-  client.isReady.removeListener(completer.complete);
 }

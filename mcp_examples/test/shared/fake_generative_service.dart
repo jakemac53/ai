@@ -28,8 +28,8 @@ class FakeGenerativeService implements GenerativeServiceWrapper {
     gemini.GenerateContentRequest request,
   ) {
     assert(_responseController == null);
-    _nextRequestCompleter.complete(request);
-    _nextRequestCompleter = Completer();
+    assert(!_nextRequestCompleter.isCompleted);
+    _nextRequestCompleter.complete(request);  
     _requests.add(request);
     final controller =
         _responseController =
@@ -46,6 +46,7 @@ class FakeGenerativeService implements GenerativeServiceWrapper {
   void closeRequest() {
     _responseController!.close();
     _responseController = null;
+    _nextRequestCompleter = Completer();
   }
 
   /// Helper to send a simple text response candidate.
