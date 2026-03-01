@@ -2,6 +2,7 @@ import 'package:nocterm/nocterm.dart';
 import 'package:mcp_examples/workflow_client.dart';
 
 import 'package:mcp_examples/ui/chat_layout.dart';
+import 'package:mcp_examples/ui/splash_screen.dart';
 
 class ClientApp extends StatefulComponent {
   final WorkflowClient client;
@@ -19,15 +20,23 @@ class _ClientAppState extends State<ClientApp> {
   @override
   void initState() {
     super.initState();
-    _startSplashTimer();
+    component.client.isReady.addListener(_onReadyChanged);
+    _onReadyChanged(); // Check initial state
   }
 
-  void _startSplashTimer() async {
-    await Future.delayed(const Duration(seconds: 2));
-    if (mounted) {
-      setState(() {
-        _showSplash = false;
-      });
+  @override
+  void dispose() {
+    component.client.isReady.removeListener(_onReadyChanged);
+    super.dispose();
+  }
+
+  void _onReadyChanged() {
+    if (component.client.isReady.value) {
+      if (mounted) {
+        setState(() {
+          _showSplash = false;
+        });
+      }
     }
   }
 
@@ -54,13 +63,7 @@ class _ClientAppState extends State<ClientApp> {
         },
         child:
             _showSplash
-                ? Center(
-                  child: AsciiText(
-                    'Dash Client',
-                    font: AsciiFont.standard,
-                    style: TextStyle(color: theme.primary),
-                  ),
-                )
+                ? SplashScreen(client: component.client)
                 : ChatLayout(
                   client: component.client,
                   isDark: _isDark,

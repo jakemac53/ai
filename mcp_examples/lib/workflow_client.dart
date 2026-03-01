@@ -106,6 +106,7 @@ final class WorkflowClient extends MCPClient
   final ValueNotifier<int> totalThoughtsTokens = ValueNotifier(0);
   final ValueNotifier<bool> isThinking = ValueNotifier(false);
   final ValueNotifier<bool> isStreaming = ValueNotifier(false);
+  final ValueNotifier<bool> isReady = ValueNotifier(false);
 
   final ValueNotifier<bool> showThoughts = ValueNotifier(true);
   final StreamQueue<String> stdinQueue;
@@ -232,6 +233,8 @@ final class WorkflowClient extends MCPClient
     // So we don't need to add it here, but we still need to process any tool calls
     // or continuations from the final result.
     await _handleModelResponse(introResponse, addToHistory: false);
+
+    isReady.value = true;
 
     while (true) {
       await _waitForInputAndAddToHistory();

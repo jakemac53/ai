@@ -292,7 +292,6 @@ class _ChatViewState extends State<ChatView> {
                                     ),
                                   ),
                                 ),
-                                
                           ],
                         );
                       },
@@ -323,10 +322,7 @@ class _ChatViewState extends State<ChatView> {
               ],
             ),
           ),
-          if (isStreaming) ...[
-            const SizedBox(width: 1),
-            Spinner(color: color),
-          ],
+          if (isStreaming) ...[const SizedBox(width: 1), Spinner(color: color)],
         ],
       ),
     );
@@ -413,10 +409,6 @@ class _ChatViewState extends State<ChatView> {
   }
 
   Component _buildSkillWidget(BuildContext context, _SkillItem item) {
-    return SkillView(
-      name: item.name,
-      path: item.path,
-      contents: item.contents,
-    );
+    return SkillView(name: item.name, path: item.path, contents: item.contents);
   }
 }
