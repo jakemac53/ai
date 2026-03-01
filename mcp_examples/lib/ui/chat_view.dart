@@ -292,7 +292,7 @@ class _ChatViewState extends State<ChatView> {
                                     ),
                                   ),
                                 ),
-                            const SizedBox(height: 1),
+                                
                           ],
                         );
                       },

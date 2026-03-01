@@ -306,10 +306,9 @@ final class WorkflowClient extends MCPClient
     String? continuation;
     for (var part in response.parts) {
       if (part.text != null) {
-        if (addToHistory) {
+        if (addToHistory && part.thought != true) {
           _chatToUser(part.text!);
         }
-        continuation = null;
       } else if (part.functionCall != null) {
         final functionCall = part.functionCall!;
         if (functionCall.name == 'stop_workflow') {
