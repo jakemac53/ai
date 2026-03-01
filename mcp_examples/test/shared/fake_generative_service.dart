@@ -19,11 +19,17 @@ class FakeGenerativeService implements GenerativeServiceWrapper {
   /// The [StreamController] for the active request.
   StreamController<gemini.GenerateContentResponse>? _responseController;
 
+  Completer<gemini.GenerateContentRequest> _nextRequestCompleter = Completer();
+  Future<gemini.GenerateContentRequest> get nextRequest =>
+      _nextRequestCompleter.future;
+
   @override
   Stream<gemini.GenerateContentResponse> streamGenerateContent(
     gemini.GenerateContentRequest request,
   ) {
     assert(_responseController == null);
+    _nextRequestCompleter.complete(request);
+    _nextRequestCompleter = Completer();
     _requests.add(request);
     final controller =
         _responseController =

@@ -13,8 +13,6 @@ import 'package:dart_mcp/stdio.dart';
 import 'package:google_cloud_ai_generativelanguage_v1beta/generativelanguage.dart'
     as gemini;
 import 'package:google_cloud_protobuf/protobuf.dart' as pb;
-import 'package:googleapis_auth/auth_io.dart' as auth;
-import 'package:http/http.dart' as http;
 
 import 'buffered_logger.dart';
 import 'generative_service_wrapper.dart';

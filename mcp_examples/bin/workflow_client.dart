@@ -50,7 +50,7 @@ void main(List<String> args) {
     model: parsedArgs.option('model')!,
     logger: logger,
     logFile: logFilePath != null ? File(logFilePath) : null,
-    skillLoader: RealSkillLoader(logger: logger),
+    skillLoader: FileSystemSkillLoader(logger: logger),
   );
 
   runApp(ClientApp(client: client));

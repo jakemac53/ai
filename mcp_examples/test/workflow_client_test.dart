@@ -2,6 +2,8 @@
 // for details. All rights reserved. Use of this source code is governed by a
 // BSD-style license that can be found in the LICENSE file.
 
+import 'dart:async';
+
 import 'package:mcp_examples/workflow_client.dart';
 import 'package:mcp_examples/buffered_logger.dart';
 import 'package:test/test.dart';
@@ -91,24 +93,24 @@ void main() {
       client.startChat();
 
       // 1. Initial Intro
-      await _waitForRequest(fakeApi);
+      await fakeApi.nextRequest;
       fakeApi.sendTextResponse('I am ready.');
       fakeApi.closeRequest();
       await _waitForReady(client);
 
       // 2. User starts a task
       client.submitInput('Perform complex task');
-      await _waitForRequest(fakeApi, count: 2);
+      await fakeApi.nextRequest;
 
       // 3. AI decides to start a workflow
       fakeApi.sendFunctionCall('start_workflow', {});
       fakeApi.closeRequest();
 
       // 4. AI performs a tool call (e.g. read_resource)
-      await _waitForRequest(fakeApi, count: 3);
+      final request = await fakeApi.nextRequest;
       // Verify start_workflow was sent back to AI in context (internal history)
       expect(
-        fakeApi.requests.last.contents.any(
+        request.contents.any(
           (c) =>
               c.parts.any((p) => p.functionResponse?.name == 'start_workflow'),
         ),
@@ -119,7 +121,7 @@ void main() {
       fakeApi.closeRequest();
 
       // 5. AI stops workflow with summary
-      await _waitForRequest(fakeApi, count: 4);
+      await fakeApi.nextRequest;
       fakeApi.sendFunctionCall('stop_workflow', {
         'summary': 'Task completed successfully.',
       });
@@ -160,16 +162,10 @@ void main() {
   });
 }
 
-Future<void> _waitForRequest(FakeGenerativeService api, {int count = 1}) async {
-  var attempts = 20;
-  while (api.requests.length < count && attempts-- > 0) {
-    await Future.delayed(Duration(milliseconds: 10));
-  }
-}
-
 Future<void> _waitForReady(WorkflowClient client) async {
-  var attempts = 20;
-  while (!client.isReady.value && attempts-- > 0) {
-    await Future.delayed(Duration(milliseconds: 10));
-  }
+  if (client.isReady.value) return;
+  final completer = Completer<void>();
+  client.isReady.addListener(completer.complete);
+  await completer.future;
+  client.isReady.removeListener(completer.complete);
 }

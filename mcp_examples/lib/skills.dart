@@ -22,12 +22,15 @@ abstract interface class SkillLoader {
   Future<List<Skill>> load();
 }
 
-class RealSkillLoader implements SkillLoader {
+class FileSystemSkillLoader implements SkillLoader {
   final Set<String> _seenPaths = {};
   final List<Skill> _skills = [];
   final BufferedLogger _logger;
+  final Directory _root;
 
-  RealSkillLoader({required BufferedLogger logger}) : _logger = logger;
+  FileSystemSkillLoader({required BufferedLogger logger, Directory? root})
+    : _logger = logger,
+      _root = root ?? Directory.current;
 
   @override
   Future<List<Skill>> load() async {
@@ -35,10 +38,11 @@ class RealSkillLoader implements SkillLoader {
     _seenPaths.clear();
 
     // Phase 1: Search the current directory recursively for any SKILL.md under .agent or .agents
-    final cwd = Directory.current.absolute;
-    final skillGlob = Glob('**/{.agent,.agents}/**/SKILL.md');
+    final skillGlob = Glob(
+      '{.agent,.agents,**/.agent,**/.agents}/skills/**/SKILL.md',
+    );
     await for (final entity in skillGlob.list(
-      root: cwd.path,
+      root: _root.path,
       followLinks: false,
     )) {
       if (entity is File) {
@@ -47,8 +51,8 @@ class RealSkillLoader implements SkillLoader {
     }
 
     // Phase 2: Walk up parent directories and look specifically in .agent or .agents
-    var current = cwd.parent;
-    final parentGlob = Glob('{.agent,.agents}/**/SKILL.md');
+    var current = _root.parent;
+    final parentGlob = Glob('{.agent,.agents}/skills/**/SKILL.md');
     while (true) {
       await for (final entity in parentGlob.list(
         root: current.path,
@@ -86,8 +90,8 @@ class RealSkillLoader implements SkillLoader {
           _skills.add(skill);
         }
       }
-    } catch (_) {
-      // Ignore read errors
+    } catch (e, s) {
+      _logger.stderr('Failed to load skill at $path: $e\n$s');
     }
   }
 

@@ -25,3 +25,4 @@ dependency_overrides:
     path: ../pkgs/dart_mcp
 dev_dependencies:
   test: ^1.30.0
+  test_descriptor: ^2.0.2
