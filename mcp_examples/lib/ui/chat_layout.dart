@@ -318,7 +318,10 @@ class _ChatLayoutState extends State<ChatLayout> {
           loggers: component.client.loggers.value,
           activeIndex: component.client.activeLoggerIndex,
           onActivated: () {
-            component.client.loggers.value[component.client.activeLoggerIndex.value]
+            component
+                .client
+                .loggers
+                .value[component.client.activeLoggerIndex.value]
                 .markLogsRead();
           },
         );
@@ -339,7 +342,10 @@ class _ChatLayoutState extends State<ChatLayout> {
         setState(() {
           _activeTabIndex = index;
           if (index == 1) {
-            component.client.loggers.value[component.client.activeLoggerIndex.value]
+            component
+                .client
+                .loggers
+                .value[component.client.activeLoggerIndex.value]
                 .markLogsRead();
           }
         });

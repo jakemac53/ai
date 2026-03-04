@@ -13,8 +13,6 @@ import 'package:dart_mcp/stdio.dart';
 import 'package:google_cloud_ai_generativelanguage_v1beta/generativelanguage.dart'
     as gemini;
 import 'package:google_cloud_protobuf/protobuf.dart' as pb;
-import 'package:googleapis_auth/auth_io.dart' as auth;
-import 'package:http/http.dart' as http;
 
 import 'buffered_logger.dart';
 import 'generative_service_wrapper.dart';
@@ -41,8 +39,7 @@ base class WorkflowClient extends MCPClient
     File? logFile,
     bool autoStart = true,
     required this.skillLoader,
-  }) : 
-       stdinQueue = StreamQueue(_inputController.stream),
+  }) : stdinQueue = StreamQueue(_inputController.stream),
        super(Implementation(name: 'Gemini workflow client', version: '0.1.0')) {
     loggers.value = [logger];
     modelName = ValueNotifier(
@@ -247,8 +244,10 @@ base class WorkflowClient extends MCPClient
         tools: serverTools,
       );
       while (true) {
-        final continuation =
-            await _handleModelResponse(response, addToHistory: false);
+        final continuation = await _handleModelResponse(
+          response,
+          addToHistory: false,
+        );
         if (continuation == null) break;
         _addToHistory(continuation);
         response = await _generateContent(
@@ -378,16 +377,14 @@ base class WorkflowClient extends MCPClient
     try {
       final request = gemini.GenerateContentRequest(
         model: modelName.value,
-          contents: context,
-          tools: tools ?? [],
-          systemInstruction: systemInstruction,
-          generationConfig: gemini.GenerationConfig(
-            thinkingConfig:
+        contents: context,
+        tools: tools ?? [],
+        systemInstruction: systemInstruction,
+        generationConfig: gemini.GenerationConfig(
+          thinkingConfig:
               showThoughts.value
-                    ? gemini.ThinkingConfig(
-                      includeThoughts: true,
-                    )
-                    : null,
+                  ? gemini.ThinkingConfig(includeThoughts: true)
+                  : null,
         ),
       );
       final stream = api.streamGenerateContent(request);
@@ -715,11 +712,7 @@ base class WorkflowClient extends MCPClient
       final initialLevel = verbose ? LoggingLevel.debug : LoggingLevel.warning;
       serverLogLevels[connection] = ValueNotifier(initialLevel);
 
-      connection.setLogLevel(
-        SetLevelRequest(
-          level: initialLevel,
-        ),
-      );
+      connection.setLogLevel(SetLevelRequest(level: initialLevel));
       connection.onLog.listen((event) {
         final prefix = event.logger != null ? '[${event.logger}] ' : '';
         final message = '$prefix${event.data}';

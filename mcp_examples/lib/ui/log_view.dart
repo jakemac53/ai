@@ -85,16 +85,25 @@ class _LogViewState extends State<LogView> {
                 },
                 child: Container(
                   decoration: BoxDecoration(
-                    color: component.activeIndex.value == i ? theme.outlineVariant : null,
+                    color:
+                        component.activeIndex.value == i
+                            ? theme.outlineVariant
+                            : null,
                     border: BoxBorder.all(
-                      color: component.activeIndex.value == i ? theme.primary : theme.outline,
+                      color:
+                          component.activeIndex.value == i
+                              ? theme.primary
+                              : theme.outline,
                     ),
                   ),
                   padding: const EdgeInsets.symmetric(horizontal: 1),
                   child: Text(
                     component.loggers[i].name,
                     style: TextStyle(
-                      color: component.activeIndex.value == i ? theme.primary : theme.onSurface,
+                      color:
+                          component.activeIndex.value == i
+                              ? theme.primary
+                              : theme.onSurface,
                     ),
                   ),
                 ),

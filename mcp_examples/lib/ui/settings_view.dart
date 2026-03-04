@@ -16,10 +16,7 @@ class SettingsView extends StatelessComponent {
         children: [
           Text(
             'Settings',
-            style: TextStyle(
-              color: theme.primary,
-              fontWeight: FontWeight.bold,
-            ),
+            style: TextStyle(color: theme.primary, fontWeight: FontWeight.bold),
           ),
           const SizedBox(height: 1),
           _buildModelSettings(context),
@@ -31,6 +28,7 @@ class SettingsView extends StatelessComponent {
       ),
     );
   }
+
   Component _buildModelSettings(BuildContext context) {
     final theme = TuiTheme.of(context);
     return Column(
@@ -65,7 +63,9 @@ class SettingsView extends StatelessComponent {
       },
       child: Container(
         decoration: BoxDecoration(
-          border: BoxBorder.all(color: isSelected ? theme.primary : theme.outline),
+          border: BoxBorder.all(
+            color: isSelected ? theme.primary : theme.outline,
+          ),
           color: isSelected ? theme.primary : null,
         ),
         padding: const EdgeInsets.symmetric(horizontal: 1),
@@ -78,7 +78,6 @@ class SettingsView extends StatelessComponent {
       ),
     );
   }
-
 
   Component _buildThinkingSettings(BuildContext context) {
     final theme = TuiTheme.of(context);

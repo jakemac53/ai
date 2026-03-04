@@ -7,7 +7,7 @@ void main() {
   test('Spinner cycles through frames', () async {
     await testNocterm('Spinner animation', (tester) async {
       await tester.pumpComponent(const Spinner());
-      
+
       // Spinner frames: ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏']
       // The frame depends on DateTime.now().
       // Since we can't easily mock DateTime.now() without fake_async,
@@ -20,11 +20,15 @@ void main() {
           break;
         }
       }
-      expect(foundAny, isTrue, reason: 'Should render one of the spinner frames');
+      expect(
+        foundAny,
+        isTrue,
+        reason: 'Should render one of the spinner frames',
+      );
 
       // Pump to next frame
       await tester.pump(const Duration(milliseconds: 110));
-      
+
       // We could check if it changed, but timing might be slightly off.
       // At least we verified it renders something.
     });

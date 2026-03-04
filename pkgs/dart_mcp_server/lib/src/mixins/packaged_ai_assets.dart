@@ -36,6 +36,14 @@ base mixin PackagedAiAssetsSupport
   final Set<String> _dynamicallyAddedPrompts = {};
 
   @override
+  FutureOr<ListResourcesResult> listResources([
+    ListResourcesRequest? request,
+  ]) async {
+    await _assetsDiscoveryCompleter?.future;
+    return super.listResources(request);
+  }
+
+  @override
   Future<void> updateRoots() async {
     await super.updateRoots();
     await _discoverAssets();
@@ -53,6 +61,7 @@ base mixin PackagedAiAssetsSupport
   /// Discover resources and prompts from `extensions/mcp/config.yaml` of the
   /// workspace roots and their dependencies.
   Future<void> _discoverAssets() async {
+    log(LoggingLevel.debug, 'Discovering assets from packages');
     // TODO: Elicit for permission to load AI assets from packages.
     if (_assetsDiscoveryCompleter != null &&
         !_assetsDiscoveryCompleter!.isCompleted) {
@@ -62,21 +71,24 @@ base mixin PackagedAiAssetsSupport
     try {
       final allPackages = <String, Package>{};
       final knownRoots = await roots;
+      log(LoggingLevel.debug, 'roots: $knownRoots');
 
       for (final root in knownRoots) {
         final rootDir = fileSystem.directory(Uri.parse(root.uri));
         if (!rootDir.existsSync()) continue;
 
         final pubspecDirs = _findPubspecDirectories(rootDir, fileSystem);
+        log(LoggingLevel.debug, 'pubspecDirs: $pubspecDirs');
         await for (final dir in pubspecDirs) {
           final packageConfig = await findPackageConfig(dir);
+          log(LoggingLevel.debug, 'packageConfig: $packageConfig');
           if (packageConfig == null) continue;
           // TODO: Only load resources and prompts from immediate dependencies.
           for (final package in packageConfig.packages) {
             // Only overwrite if this version is newer (for now, just add if
             // not present).
-            // We also load all resources rather than just immediate dependencies,
-            // because transient dependencies might have important tools too.
+            // We also load all resources rather than just immediate
+            // dependencies, since we don't know which are which.
             if (!allPackages.containsKey(package.name)) {
               allPackages[package.name] = package;
             }
@@ -88,6 +100,7 @@ base mixin PackagedAiAssetsSupport
       final newPrompts = <String>{};
 
       for (final package in allPackages.values) {
+        log(LoggingLevel.debug, 'Searching package: $package');
         if (package.root.scheme != 'file') {
           log(
             LoggingLevel.warning,
@@ -107,6 +120,10 @@ base mixin PackagedAiAssetsSupport
           'config.yaml',
         );
         final configFile = fileSystem.file(configPath);
+        log(
+          LoggingLevel.debug,
+          'configFile: ${configFile.path}: ${configFile.existsSync()}',
+        );
 
         if (!configFile.existsSync()) continue;
 
@@ -114,12 +131,18 @@ base mixin PackagedAiAssetsSupport
           final content = await configFile.readAsString();
           final yaml = loadYaml(content);
 
-          if (yaml is! YamlMap) continue;
+          if (yaml is! YamlMap) {
+            log(LoggingLevel.warning, '$yaml is not a YamlMap');
+            continue;
+          }
 
           final resources = yaml['resources'];
           if (resources is YamlList) {
             for (final resourceObj in resources) {
-              if (resourceObj is! YamlMap) continue;
+              if (resourceObj is! YamlMap) {
+                log(LoggingLevel.warning, '$resourceObj is not a YamlMap');
+                continue;
+              }
 
               final isPrivate = resourceObj['visibility'] == 'private';
               final rawPath = resourceObj['path'] as String;

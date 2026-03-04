@@ -35,6 +35,9 @@ class _SpinnerState extends State<Spinner> {
   Component build(BuildContext context) {
     final theme = TuiTheme.of(context);
     final frame = Spinner.getFrame();
-    return Text(frame, style: TextStyle(color: component.color ?? theme.primary));
+    return Text(
+      frame,
+      style: TextStyle(color: component.color ?? theme.primary),
+    );
   }
 }
