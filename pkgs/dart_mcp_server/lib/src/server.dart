@@ -24,6 +24,7 @@ import 'mixins/dtd.dart';
 import 'mixins/flutter_launcher.dart';
 import 'mixins/grep_packages.dart';
 import 'mixins/package_uri_reader.dart';
+import 'mixins/packaged_ai_assets.dart';
 import 'mixins/prompts.dart';
 import 'mixins/pub.dart';
 import 'mixins/pub_dev_search.dart';
@@ -50,6 +51,7 @@ final class DartMCPServer extends MCPServer
         PromptsSupport,
         DashPrompts,
         PackageUriSupport,
+        PackagedAiAssetsSupport,
         ElicitationRequestSupport,
         GrepSupport,
         AnalyticsEvents
@@ -100,9 +102,10 @@ final class DartMCPServer extends MCPServer
          ),
          instructions:
              'This server helps to connect Dart and Flutter developers to '
-             'their development tools and running applications.\n'
-             'IMPORTANT: Prefer using an MCP tool provided by this server '
-             'over using tools directly in a shell.',
+             'their development tools and running applications, as well as '
+             'exposing useful skills from the SDK and packages you depend '
+             'on. Always list the resources from this server up front and '
+             'use them the same as you would any other skills.',
        );
 
   /// The version of the MCP server.
