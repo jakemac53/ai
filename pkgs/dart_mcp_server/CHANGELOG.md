@@ -22,6 +22,9 @@
   or embedded resources. This has better support across all clients.
 - Fix nested finder JSON serialization for Ancestor/Descendant finders in the
   `flutter_driver` tool ([issue #345](https://github.com/dart-lang/ai/issues/345)).
+- Fix `analyze_files` returning false "No errors" when `paths` parameter is specified.
+- Merge `get_selected_widget`, `get_widget_tree`, `set_widget_selection_mode` into `widget_inspector` tool.
+- Merge `hover`, `signatureHelp`, `resolveWorkspaceSymbol` into `lsp` tool.
 
 # 0.1.2 (Dart SDK 3.11.0)
 

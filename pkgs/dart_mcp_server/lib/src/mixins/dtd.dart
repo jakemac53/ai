@@ -5,6 +5,7 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:collection/collection.dart';
 import 'package:dart_mcp/server.dart';
 import 'package:dds_service_extensions/dds_service_extensions.dart';
 import 'package:dtd/dtd.dart';
@@ -40,10 +41,11 @@ extension McpServiceConstants on Never {
 base mixin DartToolingDaemonSupport
     on ToolsSupport, LoggingSupport, ResourcesSupport
     implements AnalyticsSupport {
-  DartToolingDaemon? _dtd;
+  /// The DTD instances that this server is connected to.
+  final List<DartToolingDaemon> _dtds = [];
 
-  /// The last reported active location from the editor.
-  Map<String, Object?>? _activeLocation;
+  @visibleForTesting
+  Iterable<DartToolingDaemon> get dtds => _dtds;
 
   /// A Map of [VmService] object [Future]s by their VM Service URI.
   ///
@@ -51,11 +53,6 @@ base mixin DartToolingDaemonSupport
   /// are unregistered via DTD or when the VM service shuts down.
   @visibleForTesting
   final activeVmServices = <String, Future<VmService>>{};
-
-  /// Whether or not the connected app service is supported.
-  ///
-  /// Once we connect to dtd, this may be toggled to `true`.
-  bool _connectedAppServiceIsSupported = false;
 
   /// Whether to await the disposal of all [VmService] objects in
   /// [activeVmServices] upon server shutdown or loss of DTD connection.
@@ -106,30 +103,29 @@ base mixin DartToolingDaemonSupport
     return '${sanitizedClientName}_${generateShortUUID()}';
   }
 
-  /// Called when the DTD connection is lost, resets all associated state.
-  Future<void> _resetDtd() async {
-    _dtd = null;
-    _activeLocation = null;
-    _connectedAppServiceIsSupported = false;
+  /// Called when the DTD connection is lost or explicitly disconnected, resets
+  /// all associated state.
+  Future<void> _resetDtd(DartToolingDaemon dtd) async {
+    _dtds.remove(dtd);
+    await dtd.close();
 
     // TODO: determine whether we need to dispose the [inspectorObjectGroup] on
     // the Flutter Widget Inspector for each VM service instance.
+    final vmServiceUris = dtd.vmServiceUris;
 
     final future = Future.wait(
-      activeVmServices.values.map(
-        (vmService) => vmService.then((service) => service.dispose()),
-      ),
+      vmServiceUris.map((uri) async {
+        try {
+          await (await activeVmServices.remove(uri))?.dispose();
+        } catch (_) {}
+      }),
     );
     debugAwaitVmServiceDisposal ? await future : unawaited(future);
-
-    activeVmServices.clear();
   }
 
   @visibleForTesting
-  Future<void> updateActiveVmServices() async {
-    final dtd = _dtd;
-    if (dtd == null) return;
-    if (!_connectedAppServiceIsSupported) return;
+  Future<void> updateActiveVmServices(DartToolingDaemon dtd) async {
+    if (!dtd.supportsConnectedApps) return;
 
     final vmServiceInfos = (await dtd.getVmServices()).vmServicesInfos;
     if (vmServiceInfos.isEmpty) return;
@@ -139,6 +135,9 @@ base mixin DartToolingDaemonSupport
       if (activeVmServices.containsKey(vmServiceUri)) {
         continue;
       }
+
+      dtd.vmServiceUris.add(vmServiceUri);
+
       final vmServiceFuture = activeVmServices[vmServiceUri] =
           vmServiceConnectUri(vmServiceUri);
       final vmService = await vmServiceFuture;
@@ -192,16 +191,15 @@ base mixin DartToolingDaemonSupport
 
   @override
   FutureOr<InitializeResult> initialize(InitializeRequest request) async {
-    registerTool(connectTool, _connect);
+    registerTool(dtdTool, _dtd);
     registerTool(getRuntimeErrorsTool, runtimeErrors);
     registerTool(getActiveLocationTool, _getActiveLocation);
     registerTool(hotRestartTool, hotRestart);
+
     registerTool(hotReloadTool, hotReload);
 
     if (enableScreenshots) registerTool(screenshotTool, takeScreenshot);
-    registerTool(getWidgetTreeTool, widgetTree);
-    registerTool(getSelectedWidgetTool, selectedWidget);
-    registerTool(setWidgetSelectionModeTool, _setWidgetSelectionMode);
+    registerTool(widgetInspectorTool, _widgetInspector);
     registerTool(flutterDriverTool, _callFlutterDriver);
 
     return super.initialize(request);
@@ -209,26 +207,26 @@ base mixin DartToolingDaemonSupport
 
   @visibleForTesting
   static final List<Tool> allTools = [
-    connectTool,
+    dtdTool,
     getRuntimeErrorsTool,
     getActiveLocationTool,
     hotRestartTool,
     hotReloadTool,
     screenshotTool,
-    getWidgetTreeTool,
-    getSelectedWidgetTool,
-    setWidgetSelectionModeTool,
+    widgetInspectorTool,
     flutterDriverTool,
   ];
 
   @override
   Future<void> shutdown() async {
-    await _resetDtd();
+    await Future.wait(_dtds.toList().map(_resetDtd));
     await super.shutdown();
   }
 
   Future<CallToolResult> _callFlutterDriver(CallToolRequest request) async {
+    final appUri = request.arguments?[ParameterNames.appUri] as String?;
     return _callOnVmService(
+      appUri: appUri,
       callback: (vmService) async {
         final appListener = await _AppListener.forVmService(vmService, this);
         if (!appListener.registeredServices.containsKey(
@@ -238,7 +236,8 @@ base mixin DartToolingDaemonSupport
         }
         final vm = await vmService.getVM();
         final timeout = request.arguments?['timeout'] as String?;
-        final isScreenshot = request.arguments?['command'] == 'screenshot';
+        final isScreenshot =
+            request.arguments?[ParameterNames.command] == 'screenshot';
         if (isScreenshot) {
           request.arguments?.putIfAbsent('format', () => '4' /*png*/);
         }
@@ -285,34 +284,48 @@ base mixin DartToolingDaemonSupport
 
   /// Connects to the Dart Tooling Daemon.
   FutureOr<CallToolResult> _connect(CallToolRequest request) async {
-    if (_dtd != null) {
+    final uriString = request.arguments![ParameterNames.uri] as String;
+    final uri = Uri.parse(uriString);
+    if (_dtds.any((dtd) => dtd.uri == uri)) {
       return _dtdAlreadyConnected;
     }
 
     try {
-      final dtd = _dtd = await DartToolingDaemon.connect(
-        Uri.parse(request.arguments![ParameterNames.uri] as String),
-      );
+      final dtd = await DartToolingDaemon.connect(uri);
+
+      // Verification step (check if it's VM service instead of DTD)
       try {
         await dtd.call(null, 'getVM');
         // If the call above succeeds, we were connected to the vm service, and
         // should error.
-        await _resetDtd();
+        await dtd.close();
         return _gotVmServiceUri;
       } on RpcException catch (e) {
         // Double check the failure was a method not found failure, if not
         // rethrow it.
         if (e.code != RpcErrorCodes.kMethodNotFound) {
-          await _resetDtd();
+          await dtd.close();
           rethrow;
         }
       }
-      unawaited(_dtd!.done.then((_) async => await _resetDtd()));
 
-      await _registerServices();
-      await _listenForServices();
+      _dtds.add(dtd);
+      dtd.uri = uri;
+      unawaited(dtd.done.then((_) async => await _resetDtd(dtd)));
+
+      await _registerServices(dtd);
+      await _listenForServices(dtd);
+
+      // Try to get the initial list of apps.
+      await updateActiveVmServices(dtd);
+
+      final connectedApps = activeVmServices.keys.toList();
+      final appListString = connectedApps.isEmpty
+          ? 'No apps currently connected.'
+          : 'Connected apps:\n${connectedApps.map((id) => '- $id').join('\n')}';
+
       return CallToolResult(
-        content: [TextContent(text: 'Connection succeeded')],
+        content: [TextContent(text: 'Connection succeeded. $appListString')],
       );
     } on WebSocketException catch (_) {
       return CallToolResult(
@@ -331,10 +344,110 @@ base mixin DartToolingDaemonSupport
     }
   }
 
-  /// Registers all MCP server-provided services on the connected DTD instance.
-  Future<void> _registerServices() async {
-    final dtd = _dtd!;
+  /// The [dtdTool] for managing DTD connections.
+  static final dtdTool = Tool(
+    name: ToolNames.dtd.name,
+    description:
+        'Connects to, disconnects from, or lists apps connected to the '
+        'Dart Tooling Daemon.',
+    inputSchema: Schema.object(
+      properties: {
+        ParameterNames.command: EnumSchema.untitledSingleSelect(
+          description: 'The command to execute.',
+          values: [
+            DtdCommand.connect,
+            DtdCommand.disconnect,
+            DtdCommand.listConnectedApps,
+          ],
+        ),
+        ParameterNames.uri: Schema.string(
+          description:
+              'The DTD URI to connect to or disconnect from. '
+              'Required for "connect", optional for "disconnect".',
+        ),
+      },
+      required: [ParameterNames.command],
+      additionalProperties: false,
+    ),
+    annotations: ToolAnnotations(title: 'Dart Tooling Daemon'),
+  )..categories = [FeatureCategory.dartToolingDaemon];
 
+  Future<CallToolResult> _dtd(CallToolRequest request) async {
+    final command = request.arguments![ParameterNames.command] as String;
+    switch (command) {
+      case DtdCommand.connect:
+        return _connect(request);
+      case DtdCommand.disconnect:
+        return _disconnect(request);
+      case DtdCommand.listConnectedApps:
+        return _listConnectedApps(request);
+      default:
+        return CallToolResult(
+          isError: true,
+          content: [TextContent(text: 'Unknown command: $command')],
+        );
+    }
+  }
+
+  Future<CallToolResult> _listConnectedApps(CallToolRequest request) async {
+    if (_dtds.isEmpty) return _dtdNotConnected;
+
+    // Ensure lists are up to date
+    for (final dtd in _dtds) {
+      await updateActiveVmServices(dtd);
+    }
+
+    final appUris = activeVmServices.keys.toList();
+    return CallToolResult(
+      content: [
+        TextContent(
+          text: appUris.isEmpty
+              ? 'No connected apps found.'
+              : 'Connected apps:\n'
+                    '${appUris.map((a) => '- $a').join('\n')}',
+        ),
+      ],
+      structuredContent: {ParameterNames.apps: appUris},
+    );
+  }
+
+  Future<CallToolResult> _disconnect(CallToolRequest request) async {
+    var uriString = request.arguments?[ParameterNames.uri] as String?;
+    if (uriString == null) {
+      if (_dtds.isEmpty) {
+        return CallToolResult(
+          content: [TextContent(text: 'No active DTD connections.')],
+        );
+      }
+      if (_dtds.length > 1) {
+        return CallToolResult(
+          isError: true,
+          content: [
+            TextContent(
+              text:
+                  'Multiple DTD connections active. You must specify which one '
+                  'to disconnect.',
+            ),
+          ],
+        )..failureReason = CallToolFailureReason.mustSpecifyDtdUri;
+      }
+      uriString = _dtds.first.uri.toString();
+    }
+
+    final uri = Uri.parse(uriString);
+    final dtd = _dtds.firstWhereOrNull((dtd) => dtd.uri == uri);
+    if (dtd == null) {
+      return CallToolResult(
+        isError: true,
+        content: [TextContent(text: 'Not connected to DTD at $uri')],
+      )..failureReason = CallToolFailureReason.alreadyDisconnected;
+    }
+    await _resetDtd(dtd);
+    return CallToolResult(content: [TextContent(text: 'Disconnected.')]);
+  }
+
+  /// Registers all MCP server-provided services on the connected DTD instance.
+  Future<void> _registerServices(DartToolingDaemon dtd) async {
     if (clientCapabilities.sampling != null) {
       await dtd.registerService(
         '${McpServiceConstants.serviceName}_$clientId',
@@ -359,34 +472,35 @@ base mixin DartToolingDaemonSupport
   /// state information.
   ///
   /// The dart tooling daemon must be connected prior to calling this function.
-  Future<void> _listenForServices() async {
-    final dtd = _dtd!;
-
-    _connectedAppServiceIsSupported = false;
+  Future<void> _listenForServices(DartToolingDaemon dtd) async {
+    dtd.supportsConnectedApps = false;
     try {
       final registeredServices = await dtd.getRegisteredServices();
       if (registeredServices.dtdServices.contains(
         '${ConnectedAppServiceConstants.serviceName}.'
         '${ConnectedAppServiceConstants.getVmServices}',
       )) {
-        _connectedAppServiceIsSupported = true;
+        dtd.supportsConnectedApps = true;
       }
     } catch (_) {}
 
-    if (_connectedAppServiceIsSupported) {
-      await _listenForConnectedAppServiceEvents();
+    if (dtd.supportsConnectedApps) {
+      await _listenForConnectedAppServiceEvents(dtd);
     }
-    await _listenForEditorEvents();
+    await _listenForEditorEvents(dtd);
   }
 
-  Future<void> _listenForConnectedAppServiceEvents() async {
-    final dtd = _dtd!;
+  Future<void> _listenForConnectedAppServiceEvents(
+    DartToolingDaemon dtd,
+  ) async {
     dtd.onVmServiceUpdate().listen((e) async {
       log(LoggingLevel.debug, e.toString());
       switch (e.kind) {
         case ConnectedAppServiceConstants.vmServiceRegistered:
-          await updateActiveVmServices();
+          await updateActiveVmServices(dtd);
         case ConnectedAppServiceConstants.vmServiceUnregistered:
+          // We can remove it regardless of which DTD it came from since the URI
+          //is unique
           await activeVmServices
               .remove(e.data['uri'] as String)
               ?.then((service) => service.dispose());
@@ -397,13 +511,12 @@ base mixin DartToolingDaemonSupport
   }
 
   /// Listens for editor specific events.
-  Future<void> _listenForEditorEvents() async {
-    final dtd = _dtd!;
+  Future<void> _listenForEditorEvents(DartToolingDaemon dtd) async {
     dtd.onEvent('Editor').listen((e) async {
       log(LoggingLevel.debug, e.toString());
       switch (e.kind) {
         case 'activeLocationChanged':
-          _activeLocation = e.data;
+          dtd.activeLocation = e.data;
         default:
       }
     });
@@ -417,7 +530,9 @@ base mixin DartToolingDaemonSupport
   // TODO: support passing a debug session id when there is more than one debug
   // session.
   Future<CallToolResult> takeScreenshot(CallToolRequest request) async {
+    final appUri = request.arguments?[ParameterNames.appUri] as String?;
     return _callOnVmService(
+      appUri: appUri,
       callback: (vmService) async {
         final vm = await vmService.getVM();
         final result = await vmService.callServiceExtension(
@@ -457,7 +572,9 @@ base mixin DartToolingDaemonSupport
   // TODO: support passing a debug session id when there is more than one
   // debug session.
   Future<CallToolResult> hotRestart(CallToolRequest request) async {
+    final appUri = request.arguments?[ParameterNames.appUri] as String?;
     return _callOnVmService(
+      appUri: appUri,
       callback: (vmService) async {
         final appListener = await _AppListener.forVmService(vmService, this);
         appListener.errorLog.clear();
@@ -502,7 +619,9 @@ base mixin DartToolingDaemonSupport
   // TODO: support passing a debug session id when there is more than one debug
   // session.
   Future<CallToolResult> hotReload(CallToolRequest request) async {
+    final appUri = request.arguments?[ParameterNames.appUri] as String?;
     return _callOnVmService(
+      appUri: appUri,
       callback: (vmService) async {
         final appListener = await _AppListener.forVmService(vmService, this);
         if (request.arguments?['clearRuntimeErrors'] == true) {
@@ -563,7 +682,9 @@ base mixin DartToolingDaemonSupport
   // TODO: support passing a debug session id when there is more than one debug
   // session.
   Future<CallToolResult> runtimeErrors(CallToolRequest request) async {
+    final appUri = request.arguments?[ParameterNames.appUri] as String?;
     return _callOnVmService(
+      appUri: appUri,
       callback: (vmService) async {
         try {
           final errorService = await _AppListener.forVmService(vmService, this);
@@ -598,18 +719,49 @@ base mixin DartToolingDaemonSupport
     );
   }
 
+  /// Dispatches to the appropriate widget inspector command.
+  Future<CallToolResult> _widgetInspector(CallToolRequest request) async {
+    final command = request.arguments?[ParameterNames.command] as String?;
+    return switch (command) {
+      WidgetInspectorCommand.getWidgetTree => _widgetTree(request),
+      WidgetInspectorCommand.getSelectedWidget => _selectedWidget(request),
+      WidgetInspectorCommand.setWidgetSelectionMode => _setWidgetSelectionMode(
+        request,
+      ),
+      _ => CallToolResult(
+        isError: true,
+        content: [
+          TextContent(
+            text:
+                'Unknown command "$command". Must be one of: '
+                '${WidgetInspectorCommand.getWidgetTree}, '
+                '${WidgetInspectorCommand.getSelectedWidget}, '
+                '${WidgetInspectorCommand.setWidgetSelectionMode}.',
+          ),
+        ],
+      )..failureReason = CallToolFailureReason.argumentError,
+    };
+  }
+
   /// Retrieves the Flutter widget tree from the currently running app.
   ///
   /// If more than one debug session is active, then it just uses the first one.
   ///
   // TODO: support passing a debug session id when there is more than one debug
   // session.
-  Future<CallToolResult> widgetTree(CallToolRequest request) async {
+  @visibleForTesting
+  Future<CallToolResult> widgetTree(CallToolRequest request) =>
+      _widgetTree(request);
+
+  Future<CallToolResult> _widgetTree(CallToolRequest request) async {
+    final appUri = request.arguments?[ParameterNames.appUri] as String?;
     return _callOnVmService(
+      appUri: appUri,
       callback: (vmService) async {
         final vm = await vmService.getVM();
         final isolateId = vm.isolates!.first.id;
-        final summaryOnly = request.arguments?['summaryOnly'] as bool? ?? false;
+        final summaryOnly =
+            request.arguments?[ParameterNames.summaryOnly] as bool? ?? false;
         try {
           final result = await vmService.callServiceExtension(
             '$_inspectorServiceExtensionPrefix.getRootWidgetTree',
@@ -649,12 +801,10 @@ base mixin DartToolingDaemonSupport
   }
 
   /// Retrieves the selected widget from the currently running app.
-  ///
-  /// If more than one debug session is active, then it just uses the first one.
-  // TODO: support passing a debug session id when there is more than one debug
-  // session.
-  Future<CallToolResult> selectedWidget(CallToolRequest request) async {
+  Future<CallToolResult> _selectedWidget(CallToolRequest request) async {
+    final appUri = request.arguments?[ParameterNames.appUri] as String?;
     return _callOnVmService(
+      appUri: appUri,
       callback: (vmService) async {
         final vm = await vmService.getVM();
         final isolateId = vm.isolates!.first.id;
@@ -687,13 +837,10 @@ base mixin DartToolingDaemonSupport
   /// Enables or disables widget selection mode in the currently running app.
   ///
   /// If more than one debug session is active, then it just uses the first one.
-  //
-  // TODO: support passing a debug session id when there is more than one debug
-  // session.
   Future<CallToolResult> _setWidgetSelectionMode(
     CallToolRequest request,
   ) async {
-    final enabled = request.arguments?['enabled'] as bool?;
+    final enabled = request.arguments?[ParameterNames.enabled] as bool?;
     if (enabled == null) {
       return CallToolResult(
         isError: true,
@@ -707,7 +854,9 @@ base mixin DartToolingDaemonSupport
       )..failureReason = CallToolFailureReason.argumentError;
     }
 
+    final appUri = request.arguments?[ParameterNames.appUri] as String?;
     return _callOnVmService(
+      appUri: appUri,
       callback: (vmService) async {
         final vm = await vmService.getVM();
         final isolateId = vm.isolates!.first.id;
@@ -755,34 +904,79 @@ base mixin DartToolingDaemonSupport
   /// Calls [callback] on the first active debug session, if available.
   Future<CallToolResult> _callOnVmService({
     required Future<CallToolResult> Function(VmService) callback,
+    String? appUri,
   }) async {
-    final dtd = _dtd;
-    if (dtd == null) return _dtdNotConnected;
-    if (!_connectedAppServiceIsSupported) return _connectedAppsNotSupported;
+    if (_dtds.isEmpty) return _dtdNotConnected;
+    if (!_dtds.any((dtd) => dtd.supportsConnectedApps)) {
+      return _connectedAppsNotSupported;
+    }
 
-    await updateActiveVmServices();
+    // Update active vm services for all connected DTDs, if we no active ones
+    // or if the requested appUri is not in the active vm services.
+    if (activeVmServices.isEmpty ||
+        (appUri != null && !activeVmServices.containsKey(appUri))) {
+      for (final dtd in _dtds) {
+        await updateActiveVmServices(dtd);
+      }
+    }
+
     if (activeVmServices.isEmpty) return _noActiveDebugSession;
 
-    // TODO: support selecting a VM Service if more than one are available.
-    final vmService = activeVmServices.values.first;
-    return await callback(await vmService);
+    final String selectedAppUri;
+    if (appUri != null) {
+      if (!activeVmServices.containsKey(appUri)) {
+        return CallToolResult(
+          isError: true,
+          content: [
+            TextContent(
+              text:
+                  'App with URI "$appUri" not found. Use "${dtdTool.name}" '
+                  'with command "${DtdCommand.listConnectedApps}" to see '
+                  'available apps.',
+            ),
+          ],
+        )..failureReason = CallToolFailureReason.applicationNotFound;
+      }
+      selectedAppUri = appUri;
+    } else {
+      if (activeVmServices.length > 1) {
+        return CallToolResult(
+          isError: true,
+          content: [
+            TextContent(
+              text:
+                  'Multiple apps connected. You must provide an '
+                  '"${ParameterNames.appUri}". Use "${dtdTool.name}" with '
+                  'command "${DtdCommand.listConnectedApps}" to see available '
+                  'apps.',
+            ),
+          ],
+        )..failureReason = CallToolFailureReason.mustSpecifyDtdUri;
+      }
+      selectedAppUri = activeVmServices.keys.first;
+    }
+
+    return await callback(await activeVmServices[selectedAppUri]!);
   }
 
   /// Retrieves the active location from the editor.
   Future<CallToolResult> _getActiveLocation(CallToolRequest request) async {
-    if (_dtd == null) return _dtdNotConnected;
+    if (_dtds.isEmpty) return _dtdNotConnected;
 
-    final activeLocation = _activeLocation;
-    if (activeLocation == null) {
-      return CallToolResult(
-        content: [
-          TextContent(text: 'No active location reported by the editor yet.'),
-        ],
-      );
+    Map<String, Object?>? activeLocation;
+    for (final dtd in _dtds) {
+      activeLocation = dtd.activeLocation;
+      if (activeLocation != null) break;
     }
 
+    if (activeLocation == null) {
+      return CallToolResult(
+        content: [TextContent(text: 'No active location found.')],
+      );
+    }
     return CallToolResult(
-      content: [TextContent(text: jsonEncode(_activeLocation))],
+      content: [TextContent(text: jsonEncode(activeLocation))],
+      structuredContent: activeLocation,
     );
   }
 
@@ -796,12 +990,18 @@ base mixin DartToolingDaemonSupport
       description:
           'Command arguments are passed as additional properties to this map.'
           'To specify a widget to interact with, you must first use the '
-          '"${getWidgetTreeTool.name}" tool to get the widget tree of the '
+          '"${widgetInspectorTool.name}" tool (with "get_widget_tree" command) '
+          'to get the widget tree of the '
           'current page so that you can see the available widgets. Do not '
           'guess at how to select widgets, use the real text, tooltips, and '
           'widget types that you see present in the tree.',
       properties: {
-        'command': Schema.string(
+        ParameterNames.appUri: Schema.string(
+          description:
+              'The app URI to execute the driver command on. Required if '
+              'multiple apps are connected.',
+        ),
+        ParameterNames.command: Schema.string(
           // Commented out values are flutter_driver commands that are not
           // supported, but may be in the future.
           // ignore: deprecated_member_use
@@ -993,7 +1193,7 @@ base mixin DartToolingDaemonSupport
           // ignore: deprecated_member_use
           enumValues: const ['true', 'false'],
         ),
-        'enabled': Schema.string(
+        ParameterNames.enabled: Schema.string(
           description:
               'Used by set_text_entry_emulation, defaults to '
               'false',
@@ -1001,34 +1201,17 @@ base mixin DartToolingDaemonSupport
           enumValues: const ['true', 'false'],
         ),
       },
-      required: ['command'],
+      required: [ParameterNames.command],
     ),
   )..categories = [FeatureCategory.flutterDriver];
-
-  @visibleForTesting
-  static final connectTool = Tool(
-    name: ToolNames.connectDartToolingDaemon.name,
-    description:
-        'Connects to the Dart Tooling Daemon. You should get the uri either '
-        'from available tools or the user, do not just make up a random URI to '
-        'pass. When asking the user for the uri, you should suggest the "Copy '
-        'DTD Uri to clipboard" action. When reconnecting after losing a '
-        'connection, always request a new uri first.',
-    annotations: ToolAnnotations(title: 'Connect to DTD', readOnlyHint: true),
-    inputSchema: Schema.object(
-      properties: {ParameterNames.uri: Schema.string()},
-      required: const [ParameterNames.uri],
-      additionalProperties: false,
-    ),
-  )..categories = [FeatureCategory.all];
 
   @visibleForTesting
   static final getRuntimeErrorsTool = Tool(
     name: ToolNames.getRuntimeErrors.name,
     description:
         'Retrieves the most recent runtime errors that have occurred in the '
-        'active Dart or Flutter application. Requires "${connectTool.name}" to '
-        'be successfully called first.',
+        'active Dart or Flutter application. '
+        'Requires an active DTD connection.',
     annotations: ToolAnnotations(
       title: 'Get runtime errors',
       readOnlyHint: true,
@@ -1041,6 +1224,11 @@ base mixin DartToolingDaemonSupport
               'This is useful to clear out old errors that may no longer be '
               'relevant before reading them again.',
         ),
+        ParameterNames.appUri: Schema.string(
+          description:
+              'The app URI to get runtime errors from. Required if '
+              'multiple apps are connected.',
+        ),
       },
       additionalProperties: false,
     ),
@@ -1051,10 +1239,18 @@ base mixin DartToolingDaemonSupport
     name: ToolNames.takeScreenshot.name,
     description:
         'Takes a screenshot of the active Flutter application in its '
-        'current state. Requires "${connectTool.name}" to be successfully '
-        'called first.',
+        'current state. Requires an active DTD connection.',
     annotations: ToolAnnotations(title: 'Take screenshot', readOnlyHint: true),
-    inputSchema: Schema.object(additionalProperties: false),
+    inputSchema: Schema.object(
+      properties: {
+        ParameterNames.appUri: Schema.string(
+          description:
+              'The app URI to take the screenshot from. Required if multiple '
+              'apps are connected.',
+        ),
+      },
+      additionalProperties: false,
+    ),
   )..categories = [FeatureCategory.flutter];
 
   @visibleForTesting
@@ -1064,8 +1260,7 @@ base mixin DartToolingDaemonSupport
         'Performs a hot reload of the active Flutter application. '
         'This will apply the latest code changes to the running application, '
         'while maintaining application state.  Reload will not update const '
-        'definitions of global values. Requires "${connectTool.name}" to be '
-        'successfully called first.',
+        'definitions of global values. Requires an active DTD connection.',
     annotations: ToolAnnotations(title: 'Hot reload', destructiveHint: true),
     inputSchema: Schema.object(
       properties: {
@@ -1074,6 +1269,11 @@ base mixin DartToolingDaemonSupport
           description:
               'This is useful to clear out old errors that may no longer be '
               'relevant.',
+        ),
+        ParameterNames.appUri: Schema.string(
+          description:
+              'The app URI to perform the hot reload on. Required if '
+              'multiple apps are connected.',
         ),
       },
       additionalProperties: false,
@@ -1087,26 +1287,15 @@ base mixin DartToolingDaemonSupport
         'Performs a hot restart of the active Flutter application. '
         'This applies the latest code changes to the running application, '
         'including changes to global const values, while resetting '
-        'application state. Requires "${connectTool.name}" to be '
-        "successfully called first. Doesn't work for Non-Flutter Dart CLI "
-        'programs.',
+        'application state. Requires an active DTD connection. Doesn\'t work '
+        'for Non-Flutter Dart CLI programs.',
     annotations: ToolAnnotations(title: 'Hot restart', destructiveHint: true),
-    inputSchema: Schema.object(additionalProperties: false),
-  )..categories = [FeatureCategory.flutter];
-
-  @visibleForTesting
-  static final getWidgetTreeTool = Tool(
-    name: ToolNames.getWidgetTree.name,
-    description:
-        'Retrieves the widget tree from the active Flutter application. '
-        'Requires "${connectTool.name}" to be successfully called first.',
-    annotations: ToolAnnotations(title: 'Get widget tree', readOnlyHint: true),
     inputSchema: Schema.object(
       properties: {
-        'summaryOnly': Schema.bool(
+        ParameterNames.appUri: Schema.string(
           description:
-              'Defaults to false. If true, only widgets created by user code '
-              'are returned.',
+              'The app URI to perform the hot restart on. Required if multiple '
+              'apps are connected.',
         ),
       },
       additionalProperties: false,
@@ -1114,38 +1303,43 @@ base mixin DartToolingDaemonSupport
   )..categories = [FeatureCategory.flutter];
 
   @visibleForTesting
-  static final getSelectedWidgetTool = Tool(
-    name: ToolNames.getSelectedWidget.name,
+  static final widgetInspectorTool = Tool(
+    name: ToolNames.widgetInspector.name,
     description:
-        'Retrieves the selected widget from the active Flutter application. '
-        'Requires "${connectTool.name}" to be successfully called first.',
-    annotations: ToolAnnotations(
-      title: 'Get selected widget',
-      readOnlyHint: true,
-    ),
-    inputSchema: Schema.object(additionalProperties: false),
-  )..categories = [FeatureCategory.flutter, FeatureCategory.widgetInspector];
-
-  @visibleForTesting
-  static final setWidgetSelectionModeTool = Tool(
-    name: ToolNames.setWidgetSelectionMode.name,
-    description:
-        'Enables or disables widget selection mode in the active Flutter '
-        'application. Requires "${connectTool.name}" to be successfully called '
-        'first. This is not necessary when using flutter driver, only use it '
-        'when you want the user to select a widget.',
-    annotations: ToolAnnotations(
-      title: 'Set Widget Selection Mode',
-      readOnlyHint: true,
-    ),
+        'Interact with the Flutter widget inspector in the active Flutter '
+        'application. Requires an active DTD connection.',
+    annotations: ToolAnnotations(title: 'Widget Inspector', readOnlyHint: true),
     inputSchema: Schema.object(
       properties: {
-        'enabled': Schema.bool(title: 'Enable widget selection mode'),
+        ParameterNames.command: EnumSchema.untitledSingleSelect(
+          description: 'The widget inspector command to run.',
+          values: [
+            WidgetInspectorCommand.getWidgetTree,
+            WidgetInspectorCommand.getSelectedWidget,
+            WidgetInspectorCommand.setWidgetSelectionMode,
+          ],
+        ),
+        ParameterNames.summaryOnly: Schema.bool(
+          description:
+              'Only for "${WidgetInspectorCommand.getWidgetTree}". Defaults to '
+              'false. If true, only widgets created by user code are '
+              'returned.',
+        ),
+        ParameterNames.enabled: Schema.bool(
+          title: 'New widget selection mode state',
+          description:
+              'Required for "${WidgetInspectorCommand.setWidgetSelectionMode}"'
+              '.',
+        ),
+        ParameterNames.appUri: Schema.string(
+          description:
+              'The app URI to use. Required if multiple apps are connected.',
+        ),
       },
-      required: const ['enabled'],
+      required: const [ParameterNames.command],
       additionalProperties: false,
     ),
-  )..categories = [FeatureCategory.flutter, FeatureCategory.widgetInspector];
+  )..categories = [FeatureCategory.flutter];
 
   @visibleForTesting
   static final getActiveLocationTool =
@@ -1153,8 +1347,7 @@ base mixin DartToolingDaemonSupport
           name: ToolNames.getActiveLocation.name,
           description:
               'Retrieves the current active location (e.g., cursor position) '
-              'in the connected editor. Requires "${connectTool.name}" to be '
-              'successfully called first.',
+              'in the connected editor. Requires an active DTD connection.',
           annotations: ToolAnnotations(
             title: 'Get Active Editor Location',
             readOnlyHint: true,
@@ -1184,7 +1377,7 @@ base mixin DartToolingDaemonSupport
       TextContent(
         text:
             'The dart tooling daemon is not connected, you need to call '
-            '"${connectTool.name}" first.',
+            '"${dtdTool.name}" with command "${DtdCommand.connect}" first.',
       ),
     ],
   )..failureReason = CallToolFailureReason.dtdNotConnected;
@@ -1194,8 +1387,8 @@ base mixin DartToolingDaemonSupport
     content: [
       TextContent(
         text:
-            'The dart tooling daemon is already connected, you cannot call '
-            '"${connectTool.name}" again.',
+            'The dart tooling daemon is already connected to this URI, you '
+            'cannot connect again.',
       ),
     ],
   )..failureReason = CallToolFailureReason.dtdAlreadyConnected;
@@ -1473,4 +1666,36 @@ extension on VmService {
   static final _ids = Expando<String>();
   static int _nextId = 0;
   String get id => _ids[this] ??= '${_nextId++}';
+}
+
+/// Extensions to attach extra metadata to [DartToolingDaemon] instances.
+extension _DartToolingDaemonMetadata on DartToolingDaemon {
+  static final _dtdUris = Expando<Uri>();
+  static final _vmServiceUris = Expando<Set<String>>();
+  static final _supportsConnectedApps = Expando<bool>();
+  static final _activeLocations = Expando<Map<String, Object?>>();
+
+  Uri? get uri => _dtdUris[this];
+  set uri(Uri? value) => _dtdUris[this] = value;
+
+  Set<String> get vmServiceUris => _vmServiceUris[this] ??= {};
+
+  bool get supportsConnectedApps => _supportsConnectedApps[this] ?? false;
+  set supportsConnectedApps(bool value) => _supportsConnectedApps[this] = value;
+
+  Map<String, Object?>? get activeLocation => _activeLocations[this];
+  set activeLocation(Map<String, Object?>? value) =>
+      _activeLocations[this] = value;
+}
+
+extension WidgetInspectorCommand on Never {
+  static const getWidgetTree = 'get_widget_tree';
+  static const getSelectedWidget = 'get_selected_widget';
+  static const setWidgetSelectionMode = 'set_widget_selection_mode';
+}
+
+extension DtdCommand on Never {
+  static const connect = 'connect';
+  static const disconnect = 'disconnect';
+  static const listConnectedApps = 'listConnectedApps';
 }

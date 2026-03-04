@@ -5,6 +5,7 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:dart_mcp_server/dart_mcp_server.dart';
 import 'package:dart_mcp_server/src/arg_parser.dart';
 import 'package:dart_mcp_server/src/mixins/analyzer.dart';
 import 'package:dart_mcp_server/src/mixins/dtd.dart';
@@ -53,7 +54,7 @@ void main() {
         '--$disabledFeaturesOption',
         DartAnalyzerSupport.analyzeFilesTool.name,
         '--$disabledFeaturesOption',
-        DartToolingDaemonSupport.connectTool.name,
+        DartToolingDaemonSupport.dtdTool.name,
       ],
     );
     final connection = testHarness.serverConnectionPair.serverConnection;
@@ -62,11 +63,22 @@ void main() {
       tools,
       isNot(contains(equals(DartAnalyzerSupport.analyzeFilesTool))),
     );
-    expect(
-      tools,
-      isNot(contains(equals(DartToolingDaemonSupport.connectTool))),
+    expect(tools, isNot(contains(equals(DartToolingDaemonSupport.dtdTool))));
+    expect(tools, contains(equals(DartAnalyzerSupport.lspTool)));
+  });
+
+  test('Version is printed to stdout', () async {
+    final printedLines = <String>[];
+    final exitCode = await runZoned(
+      () => DartMCPServer.run(['--version']),
+      zoneSpecification: ZoneSpecification(
+        print: (_, _, _, String line) {
+          printedLines.add(line);
+        },
+      ),
     );
-    expect(tools, contains(equals(DartAnalyzerSupport.hoverTool)));
+    expect(exitCode, 0);
+    expect(printedLines, contains(equals(DartMCPServer.version)));
   });
 }
 

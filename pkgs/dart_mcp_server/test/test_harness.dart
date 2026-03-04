@@ -145,6 +145,7 @@ class TestHarness {
     String appPath, {
     required bool isFlutter,
     List<String> args = const [],
+    FakeEditorExtension? editorExtension,
   }) async {
     final session = await AppDebugSession._start(
       projectRoot,
@@ -153,7 +154,7 @@ class TestHarness {
       args: args,
       sdk: sdk,
     );
-    await fakeEditorExtension?.addDebugSession(session);
+    await (editorExtension ?? fakeEditorExtension)?.addDebugSession(session);
     final root = rootForPath(projectRoot);
     final roots = (await mcpClient.handleListRoots(ListRootsRequest())).roots;
     if (!roots.any((r) => r.uri == root.uri)) {
@@ -167,8 +168,11 @@ class TestHarness {
       Root(uri: fileSystem.directory(projectPath).absolute.uri.toString());
 
   /// Stops an app debug session.
-  Future<void> stopDebugSession(AppDebugSession session) async {
-    await fakeEditorExtension?.removeDebugSession(session);
+  Future<void> stopDebugSession(
+    AppDebugSession session, {
+    FakeEditorExtension? editorExtension,
+  }) async {
+    await (editorExtension ?? fakeEditorExtension)?.removeDebugSession(session);
     await AppDebugSession.kill(session.appProcess, session.isFlutter);
   }
 
@@ -184,14 +188,17 @@ class TestHarness {
   }) async {
     final tools = (await mcpServerConnection.listTools()).tools;
 
-    final connectTool = tools.singleWhere(
-      (t) => t.name == DartToolingDaemonSupport.connectTool.name,
+    final dtdTool = tools.singleWhere(
+      (t) => t.name == DartToolingDaemonSupport.dtdTool.name,
     );
 
     final result = await callToolWithRetry(
       CallToolRequest(
-        name: connectTool.name,
-        arguments: {ParameterNames.uri: dtdUri ?? fakeEditorExtension?.dtdUri},
+        name: dtdTool.name,
+        arguments: {
+          ParameterNames.command: DtdCommand.connect,
+          ParameterNames.uri: dtdUri ?? fakeEditorExtension?.dtdUri,
+        },
       ),
       expectError: expectError,
     );
