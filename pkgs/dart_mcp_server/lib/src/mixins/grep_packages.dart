@@ -27,9 +27,9 @@ base mixin GrepSupport
     on ToolsSupport, RootsTrackingSupport, ElicitationRequestSupport
     implements FileSystemSupport, ProcessManagerSupport {
   @override
-  FutureOr<InitializeResult> initialize(InitializeRequest request) {
+  Future<InitializeResult> initialize(InitializeRequest request) async {
     registerTool(ripGrepPackagesTool, _ripGrepPackages);
-    return super.initialize(request);
+    return await super.initialize(request);
   }
 
   @visibleForTesting

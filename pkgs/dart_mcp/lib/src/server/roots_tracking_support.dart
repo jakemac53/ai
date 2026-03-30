@@ -44,8 +44,9 @@ base mixin RootsTrackingSupport on LoggingSupport {
       clientCapabilities.roots?.listChanged == true;
 
   @override
-  FutureOr<InitializeResult> initialize(InitializeRequest request) {
-    initialized.then((_) async {
+  Future<InitializeResult> initialize(InitializeRequest request) async {
+    unawaited(
+      initialized.then((_) async {
       if (!supportsRoots) {
         log(
           LoggingLevel.warning,
@@ -60,7 +61,8 @@ base mixin RootsTrackingSupport on LoggingSupport {
         }
         await updateRoots();
       }
-    });
+      }),
+    );
     return super.initialize(request);
   }
 

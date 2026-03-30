@@ -10,8 +10,9 @@ base mixin ElicitationRequestSupport on LoggingSupport {
   bool get supportsElicitation => clientCapabilities.elicitation != null;
 
   @override
-  FutureOr<InitializeResult> initialize(InitializeRequest request) {
-    initialized.then((_) {
+  Future<InitializeResult> initialize(InitializeRequest request) async {
+    unawaited(
+      initialized.then((_) {
       if (!supportsElicitation) {
         log(
           LoggingLevel.warning,
@@ -19,8 +20,9 @@ base mixin ElicitationRequestSupport on LoggingSupport {
           'functionality may be disabled.',
         );
       }
-    });
-    return super.initialize(request);
+      }),
+    );
+    return await super.initialize(request);
   }
 
   /// Sends an `elicitation/create` request to the client.

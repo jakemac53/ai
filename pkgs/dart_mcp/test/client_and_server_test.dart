@@ -405,7 +405,7 @@ final class InitializeProgressTestMCPServer extends TestMCPServer
   InitializeProgressTestMCPServer(super.channel);
 
   @override
-  FutureOr<InitializeResult> initialize(InitializeRequest request) {
+  Future<InitializeResult> initialize(InitializeRequest request) {
     registerTool(myProgressTool, _myToolImpl);
     return super.initialize(request);
   }

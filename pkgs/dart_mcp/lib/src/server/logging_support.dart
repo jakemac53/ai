@@ -12,7 +12,7 @@ base mixin LoggingSupport on MCPServer {
   LoggingLevel loggingLevel = LoggingLevel.warning;
 
   @override
-  FutureOr<InitializeResult> initialize(InitializeRequest request) async {
+  Future<InitializeResult> initialize(InitializeRequest request) async {
     registerRequestHandler(SetLevelRequest.methodName, handleSetLevel);
 
     return (await super.initialize(request))

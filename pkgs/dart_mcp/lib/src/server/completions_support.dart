@@ -9,7 +9,7 @@ part of 'server.dart';
 /// See https://spec.modelcontextprotocol.io/specification/2025-11-05/server/utilities/completion/.
 base mixin CompletionsSupport on MCPServer {
   @override
-  FutureOr<InitializeResult> initialize(InitializeRequest request) async {
+  Future<InitializeResult> initialize(InitializeRequest request) async {
     registerRequestHandler(CompleteRequest.methodName, handleComplete);
 
     return (await super.initialize(request))

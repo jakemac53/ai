@@ -189,7 +189,7 @@ base mixin DartToolingDaemonSupport
   }
 
   @override
-  FutureOr<InitializeResult> initialize(InitializeRequest request) async {
+  Future<InitializeResult> initialize(InitializeRequest request) async {
     registerTool(dtdTool, _dtd);
     registerTool(getRuntimeErrorsTool, runtimeErrors);
     registerTool(getActiveLocationTool, _getActiveLocation);

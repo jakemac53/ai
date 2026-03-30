@@ -47,13 +47,13 @@ base mixin FlutterLauncherSupport
   };
 
   @override
-  FutureOr<InitializeResult> initialize(InitializeRequest request) {
+  Future<InitializeResult> initialize(InitializeRequest request) async {
     registerTool(launchAppTool, _launchApp);
     registerTool(stopAppTool, _stopApp);
     registerTool(listDevicesTool, _listDevices);
     registerTool(getAppLogsTool, _getAppLogs);
     registerTool(listRunningAppsTool, _listRunningApps);
-    return super.initialize(request);
+    return await super.initialize(request);
   }
 
   @visibleForTesting

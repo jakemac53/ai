@@ -59,11 +59,11 @@ base mixin RootsFallbackSupport on ToolsSupport, RootsTrackingSupport {
   _rootsListChangedFallbackController;
 
   @override
-  FutureOr<InitializeResult> initialize(InitializeRequest request) async {
+  Future<InitializeResult> initialize(InitializeRequest request) async {
     try {
-      return super.initialize(request);
+      return await super.initialize(request);
     } finally {
-      // Can't call `super.supportsRoots` until after `super.initialize`.
+      // Can't call `_fallbackEnabled` until after `super.initialize`.
       if (_fallbackEnabled) {
         registerTool(removeRootsTool, _removeRoots);
         registerTool(addRootsTool, _addRoots);

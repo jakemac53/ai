@@ -122,7 +122,7 @@ final class TestMCPServerWithTools extends TestMCPServer with ToolsSupport {
   TestMCPServerWithTools(super.channel);
 
   @override
-  FutureOr<InitializeResult> initialize(InitializeRequest request) {
+  Future<InitializeResult> initialize(InitializeRequest request) {
     registerTool(
       helloWorld,
       (_) => CallToolResult(content: [helloWorldContent]),

@@ -75,7 +75,7 @@ base mixin DartAnalyzerSupport
       );
 
   @override
-  FutureOr<InitializeResult> initialize(InitializeRequest request) async {
+  Future<InitializeResult> initialize(InitializeRequest request) async {
     // This should come first, assigns `clientCapabilities`.
     final result = await super.initialize(request);
 

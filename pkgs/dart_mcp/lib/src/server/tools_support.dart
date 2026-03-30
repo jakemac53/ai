@@ -27,7 +27,7 @@ base mixin ToolsSupport on MCPServer {
   /// If tools are registered after [initialized] completes, then the server
   /// will notify the client
   @override
-  FutureOr<InitializeResult> initialize(InitializeRequest request) async {
+  Future<InitializeResult> initialize(InitializeRequest request) async {
     registerRequestHandler(ListToolsRequest.methodName, listTools);
     registerRequestHandler(CallToolRequest.methodName, callTool);
 

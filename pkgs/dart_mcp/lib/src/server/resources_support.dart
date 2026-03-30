@@ -60,15 +60,13 @@ base mixin ResourcesSupport on MCPServer {
   /// then the client will be notified of the changes based on their
   /// subscription preferences.
   @override
-  FutureOr<InitializeResult> initialize(InitializeRequest request) async {
+  Future<InitializeResult> initialize(InitializeRequest request) async {
     registerRequestHandler(ListResourcesRequest.methodName, listResources);
+    registerRequestHandler(ReadResourceRequest.methodName, readResource);
     registerRequestHandler(
       ListResourceTemplatesRequest.methodName,
       listResourceTemplates,
     );
-
-    registerRequestHandler(ReadResourceRequest.methodName, readResource);
-
     registerRequestHandler(SubscribeRequest.methodName, subscribeResource);
     registerRequestHandler(UnsubscribeRequest.methodName, unsubscribeResource);
 

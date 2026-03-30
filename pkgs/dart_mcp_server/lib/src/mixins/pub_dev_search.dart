@@ -28,9 +28,9 @@ base mixin PubDevSupport on ToolsSupport {
   final _client = Client();
 
   @override
-  FutureOr<InitializeResult> initialize(InitializeRequest request) {
+  Future<InitializeResult> initialize(InitializeRequest request) async {
     registerTool(pubDevTool, _runPubDevSearch);
-    return super.initialize(request);
+    return await super.initialize(request);
   }
 
   @visibleForTesting

@@ -13,14 +13,23 @@ import '../utils/names.dart';
 /// A mixin which adds support for various dart and flutter specific prompts.
 base mixin DashPrompts on PromptsSupport {
   @override
-  FutureOr<InitializeResult> initialize(InitializeRequest request) {
-    addPrompt(flutterDriverUserJourneyTest, _flutterDriverUserJourneyPrompt);
-    return super.initialize(request);
+  Future<InitializeResult> initialize(InitializeRequest request) async {
+    for (final prompt in allPrompts) {
+      addPrompt(prompt, _getPrompt);
+    }
+    return await super.initialize(request);
   }
 
   static final List<Prompt> allPrompts = [flutterDriverUserJourneyTest];
 
   /// Creates the flutter driver user journey prompt based on a request.
+  GetPromptResult _getPrompt(GetPromptRequest request) {
+    if (request.name == flutterDriverUserJourneyTest.name) {
+      return _flutterDriverUserJourneyPrompt(request);
+    }
+    throw ArgumentError('Unknown prompt: ${request.name}');
+  }
+
   GetPromptResult _flutterDriverUserJourneyPrompt(GetPromptRequest request) {
     final userJourney =
         request.arguments?[ParameterNames.userJourney] as String?;

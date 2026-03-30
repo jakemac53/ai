@@ -27,7 +27,7 @@ final class SimpleFileSystemServer extends MCPServer
       );
 
   @override
-  FutureOr<InitializeResult> initialize(InitializeRequest request) {
+  Future<InitializeResult> initialize(InitializeRequest request) {
     registerTool(readFileTool, _readFile);
     registerTool(writeFileTool, _writeFile);
     registerTool(deleteFileTool, _deleteFile);

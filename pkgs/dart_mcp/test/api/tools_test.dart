@@ -2242,7 +2242,7 @@ base class TestMCPServerWithTools extends TestMCPServer with ToolsSupport {
        _initialToolHandlers = toolHandlers;
 
   @override
-  FutureOr<InitializeResult> initialize(InitializeRequest request) async {
+  Future<InitializeResult> initialize(InitializeRequest request) async {
     final result = await super.initialize(request);
     for (final tool in _initialTools) {
       final handler = _initialToolHandlers[tool.name];

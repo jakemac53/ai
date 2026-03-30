@@ -38,7 +38,7 @@ base class MCPServerWithElicitation extends MCPServer
       );
 
   @override
-  FutureOr<InitializeResult> initialize(InitializeRequest request) {
+  Future<InitializeResult> initialize(InitializeRequest request) {
     registerTool(
       Tool(
         name: 'needs_permission',

@@ -22,7 +22,7 @@ base mixin PromptsSupport on MCPServer {
   _promptImpls = {};
 
   @override
-  FutureOr<InitializeResult> initialize(InitializeRequest request) async {
+  Future<InitializeResult> initialize(InitializeRequest request) async {
     registerRequestHandler(ListPromptsRequest.methodName, listPrompts);
 
     registerRequestHandler(GetPromptRequest.methodName, getPrompt);

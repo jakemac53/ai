@@ -243,7 +243,7 @@ final class TestMCPServerWithResources extends TestMCPServer
   TestMCPServerWithResources(super.channel, {this.fileContents = const {}});
 
   @override
-  FutureOr<InitializeResult> initialize(InitializeRequest request) {
+  Future<InitializeResult> initialize(InitializeRequest request) {
     addResource(
       helloWorld,
       (_) => ReadResourceResult(
